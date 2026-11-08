@@ -45,15 +45,36 @@ async function main() {
   ].join(';');
   document.body.append(badge);
   let hideTimer = 0;
-  /** ok なら少しして消える。問題は残す。投影に出しっぱなしにしない。 */
-  function status(text, ok = true) {
+  let pinned = false;        // ショートカットで出しっぱなしにしているか
+  let lastStatus = { text: '読み込み中', ok: true };
+
+  /**
+   * 状態を出す。
+   *
+   * 問題があるときは消さない。正常なら10秒で消すが、最初のコメントが届くまでは
+   * 残す。登壇が始まる前に「繋がっている」と分かることが大事なので。
+   * 発表中は全画面でアイコンを押せないので、ショートカットで出し直せるようにする。
+   */
+  function status(text, ok = true, { sticky = false } = {}) {
+    lastStatus = { text, ok };
     badge.textContent = `弾幕スライド · ${text}`;
     badge.style.opacity = '1';
     badge.style.color = ok ? '#cfd0dc' : '#ffd2d2';
     badge.style.background = ok ? 'rgba(12,12,18,.78)' : 'rgba(120,20,20,.88)';
     clearTimeout(hideTimer);
-    if (ok) hideTimer = setTimeout(() => { badge.style.opacity = '0'; }, 4000);
+    if (ok && !pinned && !sticky) hideTimer = setTimeout(() => { badge.style.opacity = '0'; }, 10000);
   }
+  function toggleBadge() {
+    pinned = !pinned;
+    if (pinned) { clearTimeout(hideTimer); status(lastStatus.text, lastStatus.ok); }
+    else badge.style.opacity = '0';
+  }
+  chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
+    if (msg?.type !== 'danmaku:toggle') return;
+    toggleBadge();
+    reply({ pinned });
+    return true;
+  });
 
   const { trackId } = await chrome.storage.local.get('trackId');
   if (!trackId) {
@@ -155,9 +176,13 @@ async function main() {
       // 溜まっていた分は流さない。一斉に出ると画面が埋まる。
       if (isBacklog) { flow.markSeen(c.id); return; }
       received++;
+      // 最初の1件が届いたら、出しっぱなしをやめる（投影の邪魔になる）
+      if (received === 1 && !pinned) status(`${trackName} · 受付中`);
       flow.add({ id: c.id, text: c.text, width: renderer.measure(c.text) }, performance.now());
     }, (e) => { status(`購読できない: ${e.code ?? e.message}`, false); console.warn(e); });
-    status(`${track.name}${track.stopped ? ' · 停止中' : ' · 受付中'}`);
+    // 最初のコメントが届くまでは残す。繋がっていることを登壇前に確かめられるように。
+    status(`${track.name}${track.stopped ? ' · 停止中' : ' · 受付中'}`,
+      true, { sticky: received === 0 });
   }, (e) => { status(`トラックを読めない: ${e.code ?? e.message}`, false); console.warn(e); });
 
   // 動作確認用。ページのコンソールからは触れない（分離された世界なので）

@@ -35,6 +35,14 @@ const manifest = {
   ],
   action: { default_popup: 'popup.html', default_title: '弾幕スライド' },
   background: { service_worker: 'background.js' },
+  // 発表中は全画面でツールバーが出ないので、アイコンを押せない。
+  // キーボードから状態を呼び出せるようにする。
+  commands: {
+    'toggle-status': {
+      suggested_key: { default: 'Ctrl+Shift+Y', mac: 'Command+Shift+Y' },
+      description: '弾幕スライドの状態を出す / 消す',
+    },
+  },
   content_scripts: [{ matches, js: ['content.js'], run_at: 'document_idle', all_frames: false }],
 };
 mkdirSync(outDir, { recursive: true });

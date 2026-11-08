@@ -243,6 +243,46 @@ await t('popup が動いている状態を見分ける', async () => {
   await pop.close(); await page.close();
 });
 
+await t('ショートカットで状態を出し直せる（全画面でも使える道）', async () => {
+  // 発表中は全画面でツールバーが出ず、アイコンを押せない。
+  // OS のキー入力は再現できないので、background が送る合図から先を確かめる。
+  const page = await ctx.newPage();
+  await page.goto(PRESENT);
+  await page.waitForFunction(() => document.getElementById('danmaku-slide-badge') !== null,
+    { timeout: 15000 });
+
+  const toggle = () => sw.evaluate(async () => {
+    const tabs = await chrome.tabs.query({});
+    const t = tabs.find((x) => /\/present/.test(x.url ?? ''));
+    return chrome.tabs.sendMessage(t.id, { type: 'danmaku:toggle' });
+  });
+
+  // 1回目で出しっぱなしに、2回目で消える、3回目でまた出る
+  assert((await toggle())?.pinned === true, '1回目で出しっぱなしにならない');
+  assert((await toggle())?.pinned === false, '2回目で消えない');
+  assert((await toggle())?.pinned === true, '3回目で出ない');
+  // 実際に見えていることも確かめる
+  await page.waitForFunction(() => {
+    const b = document.getElementById('danmaku-slide-badge');
+    return b && getComputedStyle(b).opacity === '1';
+  }, { timeout: 8000 });
+  await page.close();
+});
+
+await t('最初のコメントが届くまで状態は消えない', async () => {
+  // 登壇が始まる前に「繋がっている」と分かることが大事
+  const page = await ctx.newPage();
+  await page.goto(PRESENT);
+  await page.waitForFunction(
+    () => /受付中/.test(document.getElementById('danmaku-slide-badge')?.textContent ?? ''),
+    { timeout: 20000 });
+  await sleep(11000);   // 自動で消える時間を超えて待つ
+  const op = await page.evaluate(() =>
+    getComputedStyle(document.getElementById('danmaku-slide-badge')).opacity);
+  assert(op === '1', `コメントが来ていないのに消えた: opacity=${op}`);
+  await page.close();
+});
+
 await t('厳しい CSP のページでも差し込める', async () => {
   const page = await ctx.newPage();
   await page.goto(PRESENT_STRICT);

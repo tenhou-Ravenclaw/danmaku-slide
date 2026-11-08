@@ -14,7 +14,7 @@ const steps = [
   ['Security Rules（42件）',   'npm', ['run', '--silent', 'test:rules']],
   ['Firestore 境界（14件）',   'npm', ['run', '--silent', 'test:bus']],
   ['実ブラウザ（38件）',       'npm', ['run', '--silent', 'test:browser']],
-  ['Chrome 拡張（13件）',       'npm', ['run', '--silent', 'test:ext']],
+  ['Chrome 拡張（15件）',       'npm', ['run', '--silent', 'test:ext']],
 ];
 
 const results = [];
