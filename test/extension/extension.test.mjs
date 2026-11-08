@@ -16,7 +16,7 @@ import { getAuth, signInAnonymously, connectAuthEmulator } from 'firebase/auth';
 import { createBus } from '../../public/lib/bus.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
-const EXT = join(here, '../../extension');
+const EXT = join(here, '../../.ext-test');   // 本番向けの extension/ を上書きしない
 const CONFIG = JSON.parse(await readFile(join(here, '../../.firebase-config.json'), 'utf8'));
 
 let pass = 0, fail = 0;
@@ -32,7 +32,16 @@ const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 const PORT = 5097;
 const srv = createServer(async (req, res) => {
   if (/\/presentation\/d\/[^/]+\/present/.test(req.url)) {
-    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    const headers = { 'Content-Type': 'text/html; charset=utf-8' };
+    // 本物の Google スライドは厳しい CSP を返す。content script からの通信が
+    // それに縛られるなら、ここで再現して落ちるはず。
+    if (/strict/.test(req.url)) {
+      headers['Content-Security-Policy'] =
+        "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; " +
+        "connect-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; " +
+        "frame-ancestors 'self'";
+    }
+    res.writeHead(200, headers);
     res.end(await readFile(join(here, 'fake-slides.html')));
     return;
   }
@@ -44,6 +53,7 @@ const srv = createServer(async (req, res) => {
   res.writeHead(404); res.end('x');
 }).listen(PORT);
 const PRESENT = `http://127.0.0.1:${PORT}/presentation/d/deck1/present`;
+const PRESENT_STRICT = `http://127.0.0.1:${PORT}/presentation/d/deck2/present?strict=1`;
 const EDIT = `http://127.0.0.1:${PORT}/presentation/d/deck1/edit`;
 
 // --- エミュレータ側にトラックを作る --------------------------------------
@@ -170,6 +180,43 @@ await t('投稿するとスライドの上に描かれる', async () => {
     for (let i = 3; i < d.length; i += 4) if (d[i] > 0) return true;
     return false;
   }, { timeout: 25000 });
+  await page.close();
+});
+
+await t('厳しい CSP のページでも差し込める', async () => {
+  const page = await ctx.newPage();
+  await page.goto(PRESENT_STRICT);
+  await page.waitForFunction(() => document.getElementById('danmaku-slide-overlay') !== null,
+    { timeout: 15000 });
+  await page.close();
+});
+
+await t('厳しい CSP のページでも Firestore に繋がって流れる', async () => {
+  // content script からの通信がページの CSP に縛られるなら、ここで落ちる。
+  // 落ちたら Firestore を background か offscreen に移す必要がある。
+  const page = await ctx.newPage();
+  const blocked = [];
+  page.on('console', (m) => {
+    const t = m.text();
+    if (/Content Security Policy|Refused to connect|CSP/i.test(t)) blocked.push(t.slice(0, 160));
+  });
+  await page.goto(PRESENT_STRICT);
+  await page.waitForFunction(() => document.getElementById('danmaku-slide-overlay') !== null,
+    { timeout: 15000 });
+  await sleep(2000);
+
+  const po = await actor(TRACK);
+  await po.post('CSPごしに流れる');
+  try {
+    await page.waitForFunction(() => {
+      const c = document.getElementById('danmaku-slide-overlay');
+      const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
+      for (let i = 3; i < d.length; i += 4) if (d[i] > 0) return true;
+      return false;
+    }, { timeout: 25000 });
+  } catch (e) {
+    throw new Error(`CSP に阻まれている可能性: ${blocked.join(' | ') || '（CSPのログは無し）'}`);
+  }
   await page.close();
 });
 
