@@ -89,7 +89,7 @@ npm run deploy        # Hosting と Rules を本番へ
 | 透過シェルの設定 | 27件 |
 | Security Rules | 60件（エミュレータ） |
 | Firestore 境界 | 17件 |
-| 実ブラウザ | 53件 |
+| 実ブラウザ | 55件 |
 | Chrome 拡張 | 16件 |
 | 本番のインデックスと Rules | 11件 |
 

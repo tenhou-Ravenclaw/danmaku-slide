@@ -527,8 +527,13 @@ await t('渡す相手ごとにボタンが分かれている', async () => {
   assert(await row.locator('.btn.toSpeaker').count() === 1, '登壇用が無い');
   assert(await row.locator('.btn.toAudience').count() === 2, '観客用が足りない');
   assert(await row.locator('input').count() === 0, '演題の入力欄が残っている');
-  assert(/登壇用リンク/.test(await row.locator('.btn.toSpeaker').textContent()),
-    await row.locator('.btn.toSpeaker').textContent());
+  // 見える文字は列見出しに任せて短い。区別は読み上げ用の名前が持つ。
+  const spoken = await row.locator('.btn.toSpeaker').getAttribute('aria-label');
+  assert(/登壇用リンク/.test(spoken ?? ''), spoken);
+  for (const i of [0, 1]) {
+    const a = await row.locator('.btn.toAudience').nth(i).getAttribute('aria-label');
+    assert(/投稿(URL|QR)/.test(a ?? ''), a);
+  }
   await org.page.close();
 });
 
@@ -943,6 +948,44 @@ await t('終了したイベントもキーボードで開ける', async () => {
   await list.page.waitForFunction(
     () => new URL(location.href).searchParams.get('e') !== null, { timeout: 20000 });
   await list.page.close(); await org.page.close();
+});
+
+await t('トラックの表が横スクロール無しで収まる', async () => {
+  // 列見出しが意味を持っているので、ボタンの文字はそこまで繰り返さない。
+  // 「登壇用リンクをコピー」を全列ぶん並べると 1280px でも 115px はみ出していた。
+  const org = await makeEventInBrowser('幅の会', ['Track A', 'Track B']);
+  await org.page.waitForFunction(
+    () => document.querySelectorAll('#tracks tr').length === 2, { timeout: 20000 });
+  for (const width of [1280, 1024]) {
+    await org.page.setViewportSize({ width, height: 900 });
+    await org.page.waitForTimeout(200);
+    const over = await org.page.evaluate(() => {
+      const t = document.querySelector('#tracks').closest('table');
+      return Math.round(t.scrollWidth - t.closest('.scroller').clientWidth);
+    });
+    assert(over <= 0, `${width}px で ${over}px はみ出している`);
+  }
+  await org.page.setViewportSize({ width: 1280, height: 800 });
+  await org.page.close();
+});
+
+await t('短くしたボタンでも何のボタンか読み上げられる', async () => {
+  // 見える文字は「コピー」まで削ったが、ボタンだけを辿る読み方では
+  // 列見出しが付いてこない。読み上げ用の名前に全部の意味を持たせる。
+  const org = await makeEventInBrowser('名前の会', ['Track A']);
+  const row = org.page.locator('#tracks tr').first();
+  const names = await row.evaluate((tr) =>
+    [...tr.querySelectorAll('button')].map((b) => ({
+      見える: b.textContent.trim(),
+      読み上げ: b.getAttribute('aria-label') ?? b.textContent.trim(),
+    })));
+  for (const n of names) {
+    assert(/Track A/.test(n.読み上げ), `どのトラックか分からない: ${JSON.stringify(n)}`);
+    assert(n.読み上げ.length > n.見える.length, `読み上げが短いまま: ${JSON.stringify(n)}`);
+  }
+  assert(names.some((n) => n.見える === 'コピー'), JSON.stringify(names));
+  assert(names.some((n) => n.見える === 'URL'), JSON.stringify(names));
+  await org.page.close();
 });
 
 await t('表に見出しの対応と説明がある', async () => {

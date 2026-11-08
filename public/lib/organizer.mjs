@@ -285,27 +285,27 @@ export async function createOrganizer({ eventId, random = () => Math.random() } 
       // 渡す相手ごとに分ける。取り違えると、観客に登壇者用の画面を配ることになる。
       const toSpeaker = cell(tr);
       toSpeaker.className = 'link';
-      toSpeaker.append(button('登壇用リンクをコピー', 'btn toSpeaker', async () => {
+      toSpeaker.append(button('コピー', 'btn toSpeaker', async () => {
         try {
           await copy(stageUrlFor(eventId, t.id));
-          say('登壇用リンクをコピーしました', 'ok');
+          say(`${t.name} の登壇用リンクをコピーしました`, 'ok');
         } catch (e) { fail(`リンクを作れない: ${e.code ?? e.message}`); }
-      }));
+      }, `${t.name} の登壇用リンクをコピー`));
 
       const toAudience = cell(tr);
       toAudience.className = 'link';
       const audRow = document.createElement('div');
       audRow.className = 'row tight';
       audRow.append(
-        button('投稿URLをコピー', 'btn toAudience', async () => {
+        button('URL', 'btn toAudience', async () => {
           await copy(postUrlFor(eventId, t.id));
-          say('投稿URLをコピーしました', 'ok');
-        }),
-        button('QRを印刷', 'btn toAudience', async () => {
+          say(`${t.name} の投稿URLをコピーしました`, 'ok');
+        }, `${t.name} の投稿URLをコピー`),
+        button('QR', 'btn toAudience', async () => {
           const svg = await QRCode.toString(postUrlFor(eventId, t.id),
             { type: 'svg', errorCorrectionLevel: 'M', margin: 2, width: 360 });
           printQr(svg, t.name, postUrlFor(eventId, t.id), 'スマホで読み取るとコメントを送れます');
-        }));
+        }, `${t.name} の投稿QRを印刷`));
       toAudience.append(audRow);
 
       // 受付の開け閉めは運営だけの操作。登壇者には押す場所が無い。
@@ -313,14 +313,14 @@ export async function createOrganizer({ eventId, random = () => Math.random() } 
       guard.className = 'link';
       const trackBus = () => createBus(sdk, { db, eventId, trackId: t.id, uid });
       guard.append(t.stopped
-        ? button('投稿を受け付ける', 'btn resume', async () => {
+        ? button('受け付ける', 'btn resume', async () => {
             try { await trackBus().open(); say(`${t.name} で投稿を受け付けます`, 'ok'); }
             catch (e) { fail(`開けられない: ${e.code ?? e.message}`); }
-          })
-        : button('投稿を止める', 'btn stop', async () => {
+          }, `${t.name} の投稿を受け付ける`)
+        : button('止める', 'btn stop', async () => {
             try { await trackBus().close(); say(`${t.name} の投稿を止めました`, 'ok'); }
             catch (e) { fail(`止められない: ${e.code ?? e.message}`); }
-          }));
+          }, `${t.name} の投稿を止める`));
 
       const del = cell(tr);
       del.append(button('削除', 'btn remove', async () => {
@@ -329,7 +329,7 @@ export async function createOrganizer({ eventId, random = () => Math.random() } 
           await sdk.deleteDoc(sdk.doc(db, 'events', eventId, 'tracks', t.id));
           say(`${t.name} を削除しました`, 'ok');
         } catch (e) { fail(`削除できない: ${e.code ?? e.message}`); }
-      }));
+      }, `${t.name} を削除`));
 
       body.append(tr);
     }
@@ -392,9 +392,17 @@ export async function createOrganizer({ eventId, random = () => Math.random() } 
 
   // --- 小物 -------------------------------------------------------------
   function cell(tr) { const td = document.createElement('td'); tr.append(td); return td; }
-  function button(text, cls, onClick) {
+  /**
+   * ボタン。
+   *
+   * label は読み上げ用の名前。表の中では列見出しが意味を持つので、
+   * 見える文字は「コピー」まで削れる。ただしボタンだけを辿る読み方では
+   * 列見出しが付いてこないので、そのときのために全部の意味を持たせる。
+   */
+  function button(text, cls, onClick, label = '') {
     const b = document.createElement('button');
     b.className = cls; b.textContent = text;
+    if (label) b.setAttribute('aria-label', label);
     b.addEventListener('click', onClick);
     return b;
   }
