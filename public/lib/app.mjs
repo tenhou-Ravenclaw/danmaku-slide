@@ -25,6 +25,14 @@ export function start() {
     });
 
     const auth = sdk.getAuth(app);
+
+    // ?emu=1 のときだけエミュレータへ向ける。localhost を自動判定にすると、
+    // 手元から本番を触って確かめることができなくなる。
+    if (new URLSearchParams(location.search).get('emu') === '1') {
+      sdk.connectFirestoreEmulator(db, '127.0.0.1', 8181);
+      sdk.connectAuthEmulator(auth, 'http://127.0.0.1:9099', { disableWarnings: true });
+    }
+
     const { user } = await sdk.signInAnonymously(auth);
     return { uid: user.uid, db };
   })();

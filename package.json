@@ -11,6 +11,7 @@
     "lint:secrets": "gitleaks git . --redact --verbose --no-banner",
     "test:unit": "node --test test/unit/",
     "test:bus": "firebase emulators:exec --only firestore --project bus-lab 'node test/bus.test.mjs'",
+    "test:browser": "npm run build && firebase emulators:exec --only firestore,auth,hosting 'node test/browser.test.mjs'",
     "lint": "npm run lint:rules && npm run lint:secrets",
     "test:rules": "firebase emulators:exec --only firestore --project danmaku-slide-test 'node test/rules.test.mjs'",
     "test:e2e": "node test/e2e.mjs",
@@ -22,7 +23,8 @@
     "@firebase/rules-unit-testing": "^6.0.0",
     "esbuild": "^0.28.2",
     "firebase": "^13.2.0",
-    "firebase-tools": "^15.35.0"
+    "firebase-tools": "^15.35.0",
+    "playwright": "^1.65.0"
   },
   "overrides": {
     "@grpc/grpc-js": "^1.14.7"

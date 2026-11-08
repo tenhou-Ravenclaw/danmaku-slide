@@ -191,6 +191,20 @@ test('登壇者交代で流れは消えるが、重複排除は残る', () => {
   assert.equal(f.add(x, 0), 'dup', 'session を跨いでも再配信は流さない');
 });
 
+test('markSeen したものは流れない', () => {
+  const f = flow();
+  f.markSeen('old');
+  assert.equal(f.add({ id: 'old', text: 'あ', width: 200 }, 0), 'dup');
+  assert.equal(f.step(0).length, 0);
+});
+
+test('markSeen は流れているものに影響しない', () => {
+  const f = flow();
+  f.add({ id: 'live', text: 'あ', width: 200 }, 0);
+  f.markSeen('other');
+  assert.equal(f.step(0).length, 1);
+});
+
 test('画面サイズが変わると行数が変わる', () => {
   const f = flow();
   assert.equal(f.laneCount, 20);

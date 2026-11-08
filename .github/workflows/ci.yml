@@ -36,6 +36,41 @@ jobs:
       - run: npm run test:rules
       - run: npm run test:bus
 
+  browser:
+    name: 実ブラウザでの検証
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/firebase/emulators
+          key: firebase-emulators-${{ runner.os }}
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      # Firebase の設定はリポジトリに置かないので、CI では最小の偽物で足りる。
+      # エミュレータに繋ぐだけなので apiKey は検証されない。
+      - name: 設定を用意する
+        run: |
+          cat > .firebase-config.json <<'JSON'
+          { "projectId": "df-hackathon-2026", "apiKey": "ci-fake-key", "authDomain": "localhost" }
+          JSON
+          node -e "
+            const fs=require('fs');
+            const c=JSON.parse(fs.readFileSync('.firebase-config.json','utf8'));
+            fs.mkdirSync('public',{recursive:true});
+            fs.writeFileSync('public/firebase-config.js',
+              '// 生成物。編集しない。\nexport const firebaseConfig = '+JSON.stringify(c,null,2)+';\n');
+          "
+      - run: npm run test:browser
+
   unit:
     name: 弾幕エンジンのテスト
     runs-on: ubuntu-latest

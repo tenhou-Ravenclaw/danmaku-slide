@@ -1,0 +1,56 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>弾幕スライド</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+  /*
+   * 透過は html に当てる。body だけに当てると、html の背景が残って黒く見える。
+   * 貼り方C（透過ウィンドウ）では ?transparent=1 で呼ばれる。
+   */
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #0b0b0f; }
+  html.transparent, html.transparent body { background: transparent; }
+
+  #stage { position: fixed; inset: 0; display: block; }
+
+  #hud {
+    position: fixed; left: 12px; bottom: 12px; z-index: 2;
+    max-width: calc(100vw - 24px);
+    padding: 6px 12px; border-radius: 999px;
+    font: 500 13px/1.5 -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Noto Sans JP", sans-serif;
+    color: #cfd0dc; background: rgba(12, 12, 18, 0.72);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    transition: opacity .2s;
+  }
+  #hud[data-kind="error"]   { color: #ffd2d2; background: rgba(120, 20, 20, 0.85); border-color: rgba(255,120,120,.4); }
+  #hud[data-kind="stopped"] { color: #ffe6b8; background: rgba(110, 72, 10, 0.85); border-color: rgba(255,200,110,.35); }
+  /* HUD は登壇者が自分の画面で見るもの。キャプチャや投影の邪魔になるなら ?hud=0 で消す */
+  html.no-hud #hud { display: none; }
+</style>
+
+<canvas id="stage"></canvas>
+<div id="hud" data-kind="ok">読み込み中</div>
+
+<script type="module">
+  // 読み込み自体が失敗したときも画面に出す。
+  // PoC では module が黙って死んで原因が分からなかった。
+  const hud = document.getElementById('hud');
+  const show = (m) => { hud.textContent = `エラー: ${m}`; hud.dataset.kind = 'error'; };
+  addEventListener('error', (e) => show(e.message ?? e.error));
+  addEventListener('unhandledrejection', (e) => show(e.reason?.message ?? e.reason));
+
+  const q = new URLSearchParams(location.search);
+  if (q.get('transparent') === '1') document.documentElement.classList.add('transparent');
+  if (q.get('hud') === '0') document.documentElement.classList.add('no-hud');
+
+  try {
+    const { createOverlay } = await import('./lib/overlay.mjs');
+    window.__overlay = createOverlay({
+      canvas: document.getElementById('stage'),
+      hud,
+      trackId: q.get('track'),
+    });
+  } catch (e) {
+    show(e?.message ?? e);
+  }
+</script>

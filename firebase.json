@@ -5,22 +5,44 @@
   },
   "hosting": {
     "public": "public",
-    "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
+    "ignore": [
+      "firebase.json",
+      "**/.*",
+      "**/node_modules/**"
+    ],
     "headers": [
       {
         "source": "**/*.@(js|css)",
-        "headers": [{ "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }]
+        "headers": [
+          {
+            "key": "Cache-Control",
+            "value": "public, max-age=31536000, immutable"
+          }
+        ]
       },
       {
         "source": "/**/*.html",
-        "headers": [{ "key": "Cache-Control", "value": "no-cache" }]
+        "headers": [
+          {
+            "key": "Cache-Control",
+            "value": "no-cache"
+          }
+        ]
       }
     ]
   },
   "emulators": {
-    "firestore": { "port": 8181 },
-    "auth": { "port": 9099 },
-    "hosting": { "port": 5000 },
-    "ui": { "enabled": true }
+    "firestore": {
+      "port": 8181
+    },
+    "auth": {
+      "port": 9099
+    },
+    "hosting": {
+      "port": 5055
+    },
+    "ui": {
+      "enabled": true
+    }
   }
 }
