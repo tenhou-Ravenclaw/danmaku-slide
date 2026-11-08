@@ -5,6 +5,7 @@
 import { spawnSync } from 'node:child_process';
 
 const steps = [
+  ['弾幕エンジン（20件）',     'npm', ['run', '--silent', 'test:unit']],
   ['Rules の不変条件と生成物', 'npm', ['run', '--silent', 'lint:rules']],
   ['秘密情報（履歴）',         'npm', ['run', '--silent', 'lint:secrets']],
   ['本番依存の脆弱性',         'npm', ['audit', '--omit=dev', '--audit-level=moderate']],

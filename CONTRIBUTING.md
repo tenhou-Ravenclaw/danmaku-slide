@@ -29,7 +29,6 @@ npm run test:e2e      # Security Rules（本番 / 27件）
 
 `lint:secrets` には gitleaks が必要（`brew install gitleaks`）。
 
-`npm run test:unit`（弾幕エンジンなどの純粋ロジック）は #2 で追加する。
 
 `test:e2e` は本番の Firestore を触る。検証用トラックと匿名アカウントは自分で片付けるが、
 失敗して残ったら手で消す。
@@ -60,6 +59,7 @@ go install github.com/xpadev-net/gh-review-hook/cmd/gh-review-hook@latest
 
 | ジョブ | 内容 |
 |---|---|
+| 弾幕エンジンのテスト | `node --test` で 20 件 |
 | Security Rules のテスト | エミュレータで 42 件 |
 | Rules の不変条件と生成物のガード | テストモードの Rules の混入、守りの欠落、生成物の追跡を機械で落とす |
 | 秘密情報スキャン | gitleaks で **履歴** を見る（一度コミットして消した鍵も対象） |

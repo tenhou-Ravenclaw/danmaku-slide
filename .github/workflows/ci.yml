@@ -35,6 +35,16 @@ jobs:
       - run: npx firebase --version
       - run: npm run test:rules
 
+  unit:
+    name: 弾幕エンジンのテスト
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm run test:unit
+
   guard:
     name: Rules の不変条件と生成物のガード
     runs-on: ubuntu-latest
