@@ -12,6 +12,8 @@
   main { flex: 1; display: flex; flex-direction: column; gap: .6rem; padding: 1.25rem; max-width: 32rem; width: 100%; margin: 0 auto; }
 
   #track { font-size: 1.15rem; font-weight: 700; }
+  /* 暗い客席で読む。見出しほどではないが、消えない大きさにする */
+  label.field > span { font-size: .85rem; }
   #title { font-size: .92rem; color: var(--ink2); margin-bottom: .5rem; }
 
   /* 16px 未満だと iOS が勝手に拡大し、送信ボタンが画面外へ出る */
@@ -37,11 +39,14 @@
     <div id="title">接続中…</div>
   </div>
 
-  <!-- 送れない理由は入力欄に紐づける。離れた場所に出すと、何が悪いのか結びつかない。 -->
-  <label for="text" class="visually-hidden">コメント</label>
-  <textarea id="text" rows="4" placeholder="コメントを入力"
-    enterkeyhint="send" autocomplete="off" autocapitalize="off"
-    aria-describedby="count note"></textarea>
+  <!-- ラベルは見えるところに置く。placeholder は打ち始めた瞬間に消えるので、
+       それだけに頼ると「何の欄だったか」が分からなくなる。
+       送れない理由は aria-describedby で入力欄に紐づける。
+       離れた場所に出すと、何が悪いのかが結びつかない。 -->
+  <label class="field" for="text"><span>コメント</span>
+    <textarea id="text" rows="4"
+      enterkeyhint="send" autocomplete="off" autocapitalize="off"
+      aria-describedby="count note"></textarea></label>
   <span id="count" data-over="">0 / 60</span>
 
   <button id="send" class="btn block" disabled>送信</button>

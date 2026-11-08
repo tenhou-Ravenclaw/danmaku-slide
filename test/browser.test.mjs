@@ -725,7 +725,8 @@ for (const scheme of ['light', 'dark']) {
       () => /Track A/.test(document.getElementById('track')?.textContent ?? ''), { timeout: 20000 });
     await r.page.fill('#text', 'よめるか');
     await r.page.waitForFunction(() => !document.getElementById('send').disabled, { timeout: 10000 });
-    for (const { sel, fg, bg } of await readable(r.page, ['#track', '#title', '#text', '#send'])) {
+    for (const { sel, fg, bg } of await readable(r.page,
+      ['#track', '#title', '#text', '#send', 'label[for="text"] > span'])) {
       const ratio = contrast(rgb(fg), rgb(bg));
       assert(ratio >= 4.0, `${sel} のコントラストが低い: ${ratio.toFixed(2)} (${fg} / ${bg})`);
     }
@@ -747,6 +748,37 @@ await t('弾幕本体は端末が明るくても暗いまま', async () => {
 });
 
 // --- 読み上げと指で押せる大きさ -----------------------------------------
+await t('入力欄のラベルが見えている', async () => {
+  // placeholder は打ち始めた瞬間に消える。それだけに頼ると
+  // 「何の欄だったか」が分からなくなる。
+  const org = await makeLiveEvent('ラベルの会', ['Track A']);
+  const { page } = await open(`${HOST}/post.html?emu=1&e=${org.eventId}&t=a`);
+  await page.waitForFunction(
+    () => /Track A/.test(document.getElementById('track')?.textContent ?? ''), { timeout: 20000 });
+
+  const label = page.locator('label[for="text"]');
+  assert(await label.count() === 1, 'ラベルが無い');
+  assert(await label.isVisible(), 'ラベルが見えていない');
+  assert((await label.textContent()).trim().length > 0, 'ラベルが空');
+
+  // 打ち始めてもラベルは残る（placeholder との違いはここ）
+  await page.fill('#text', 'うってみる');
+  assert(await label.isVisible(), '打ったらラベルが消えた');
+
+  // 入力欄と結びついていること
+  assert(await page.evaluate(() => {
+    const t = document.getElementById('text');
+    return t.labels.length === 1 && t.labels[0].textContent.trim() === 'コメント';
+  }), 'ラベルが入力欄に結びついていない');
+
+  // 横幅が親から縮んでいない（flex の子から label の中へ移したので）
+  assert(await page.evaluate(() => {
+    const t = document.getElementById('text');
+    return t.getBoundingClientRect().width > t.parentElement.getBoundingClientRect().width - 2;
+  }), '入力欄が縮んでいる');
+  await page.close(); await org.page.close();
+});
+
 await t('送れない理由が入力欄に紐づいている', async () => {
   // 離れた場所に出すと、何が悪いのか結びつかない
   const org = await makeLiveEvent('読み上げの会', ['Track A']);
