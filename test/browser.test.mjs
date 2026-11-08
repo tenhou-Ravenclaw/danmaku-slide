@@ -632,60 +632,116 @@ await t('ブラウザ側で共有を止めても固まったまま映らない',
   await ctx.close();
 });
 
-// --- 帯で浮かせる（Document PiP）---------------------------------------
-await t('帯で浮かせると弾幕が別の窓へ移る', async () => {
-  const { page, errors } = await open(`${HOST}/overlay.html?emu=1&track=${TRACK}`);
+// --- 登壇コントロール画面（通し）---------------------------------------
+await t('トラック未指定なら理由が出る', async () => {
+  const { page } = await open(`${HOST}/stage.html?emu=1`);
   await page.waitForFunction(
-    () => /Browser Track/.test(document.getElementById('hud')?.textContent ?? ''),
+    () => /トラックが指定されていない/.test(document.getElementById('stateText')?.textContent ?? ''),
+    { timeout: 15000 });
+  await page.close();
+});
+
+await t('手順は最初の1つが「いま」になっている', async () => {
+  const tS = 'stage-steps';
+  const sp = await actor(tS);
+  await sp.createTrack({ name: 'Stage Track' });
+  const { page, errors } = await open(`${HOST}/stage.html?emu=1&track=${tS}`);
+  await page.waitForFunction(
+    () => /受付中/.test(document.getElementById('stateText')?.textContent ?? ''),
     { timeout: 20000 });
-
-  const supported = await page.evaluate(() => window.__overlay.pip.isSupported());
-  assert(supported, 'Document PiP に対応していない');
-
-  await page.evaluate(() => document.getElementById('float').click());
-  await page.waitForFunction(() => window.__overlay.isFloating === true, { timeout: 15000 });
-
-  // canvas が元のページから抜けて、行数も新しい窓の高さで測り直されている
-  const moved = await page.evaluate(() => ({
-    inPage: document.getElementById('stage') !== null,
-    lanes: window.__overlay.flow.laneCount,
-  }));
-  assert(!moved.inPage, 'canvas が元のページに残っている');
-  assert(moved.lanes >= 1, `行数が取れていない: ${moved.lanes}`);
+  assert(await page.getAttribute('#s1', 'data-state') === 'now', '最初の手順が「いま」でない');
+  assert(await page.isDisabled('#project'), 'スライド未取り込みなのに投影できる');
   assert(errors.length === 0, `エラー: ${errors.join(' / ')}`);
   await page.close();
 });
 
-await t('浮かせた帯にも投稿が流れる', async () => {
-  const tA = 'pip-track';
-  const sp = await actor(tA);
-  await sp.createTrack({ name: 'PiP Track' });
-
-  const { page } = await open(`${HOST}/overlay.html?emu=1&track=${tA}`);
+await t('届いたコメントが手元に出る', async () => {
+  const tF = 'stage-feed';
+  const sp = await actor(tF);
+  await sp.createTrack({ name: 'Feed Track' });
+  const { page } = await open(`${HOST}/stage.html?emu=1&track=${tF}`);
   await page.waitForFunction(
-    () => /PiP Track/.test(document.getElementById('hud')?.textContent ?? ''),
+    () => /受付中/.test(document.getElementById('stateText')?.textContent ?? ''),
     { timeout: 20000 });
-  await page.evaluate(() => document.getElementById('float').click());
-  await page.waitForFunction(() => window.__overlay.isFloating === true, { timeout: 15000 });
-
-  const po = await actor(tA);
-  await po.post('帯にも流れる');
-  await page.waitForFunction(() => (window.__overlay?.flow?.activeCount ?? 0) > 0, { timeout: 20000 });
+  await sleep(500);
+  const po = await actor(tF);
+  await po.post('手元に出るはず');
+  await page.waitForFunction(
+    () => document.querySelectorAll('#feed li').length > 0, { timeout: 20000 });
+  assert(/手元に出るはず/.test(await page.textContent('#feed')), await page.textContent('#feed'));
+  assert((await page.textContent('#count')) === '1', await page.textContent('#count'));
   await page.close();
 });
 
-await t('帯をやめると弾幕が元のページへ戻る', async () => {
-  const { page } = await open(`${HOST}/overlay.html?emu=1&track=${TRACK}`);
+await t('リハーサル用の投稿が流れる', async () => {
+  const tR = 'stage-rehearsal';
+  const sp = await actor(tR);
+  await sp.createTrack({ name: 'Rehearsal' });
+  const { page } = await open(`${HOST}/stage.html?emu=1&track=${tR}`);
   await page.waitForFunction(
-    () => /Browser Track/.test(document.getElementById('hud')?.textContent ?? ''),
+    () => /受付中/.test(document.getElementById('stateText')?.textContent ?? ''),
     { timeout: 20000 });
-  await page.evaluate(() => document.getElementById('float').click());
-  await page.waitForFunction(() => window.__overlay.isFloating === true, { timeout: 15000 });
-  await page.evaluate(() => window.__overlay.unfloat());
-  await page.waitForFunction(() => window.__overlay.isFloating === false, { timeout: 15000 });
-  assert(await page.evaluate(() => document.getElementById('stage') !== null),
-    'canvas が戻っていない');
+  await sleep(500);
+  await page.fill('#testText', 'リハーサル');
+  await page.click('#testSend');
+  await page.waitForFunction(
+    () => /リハーサル/.test(document.getElementById('feed')?.textContent ?? ''), { timeout: 20000 });
   await page.close();
+});
+
+await t('取り込んだスライドがプロジェクタ側の窓に渡り、弾幕が重なる（通し）', async () => {
+  const tP = 'stage-project';
+  const sp = await actor(tP);
+  await sp.createTrack({ name: 'Project Track' });
+
+  const { page, errors, ctx } = await openCapturing(`${HOST}/stage.html?emu=1&track=${tP}`);
+  await page.waitForFunction(
+    () => /受付中/.test(document.getElementById('stateText')?.textContent ?? ''),
+    { timeout: 20000 });
+
+  // ① スライドを取り込む
+  await page.evaluate(() => document.getElementById('pick').click());
+  await page.waitForFunction(() => window.__stage?.hasSlide === true, { timeout: 20000 });
+  assert(await page.getAttribute('#s1', 'data-state') === 'done', '手順1が完了になっていない');
+
+  // ② プロジェクタに出す
+  const [proj] = await Promise.all([
+    ctx.waitForEvent('page'),
+    page.evaluate(() => document.getElementById('project').click()),
+  ]);
+  const projErrs = [];
+  proj.on('pageerror', (e) => projErrs.push(String(e.message)));
+  proj.on('console', (m) => { if (m.type() === 'error') projErrs.push(m.text()); });
+  await proj.waitForLoadState('load');
+  try {
+    await proj.waitForFunction(
+      () => /Project Track/.test(document.getElementById('hud')?.textContent ?? ''),
+      { timeout: 25000 });
+  } catch (e) {
+    throw new Error(`投影窓が繋がらない url=${proj.url()} hud=${await proj.textContent('#hud').catch(() => '?')} errs=${projErrs.join(' / ')}`);
+  }
+
+  // ③ 全画面にするボタンが出ている（親からは全画面にできないため）
+  assert(await proj.isVisible('#cover'), '全画面ボタンが出ていない');
+
+  // 親から渡した映像が下敷きとして描かれている
+  await proj.waitForFunction(() => document.getElementById('slide').videoWidth > 0, { timeout: 25000 });
+  await sleep(600);
+  const n = await proj.evaluate(() => {
+    const c = document.getElementById('stage'), x = c.getContext('2d');
+    const d = x.getImageData(0, 0, c.width, c.height).data;
+    let k = 0; for (let i = 3; i < d.length; i += 4) if (d[i] > 0) k++;
+    return k;
+  });
+  assert(n > 100000, `スライドが渡っていない: ${n}`);
+
+  // ④ 投稿がプロジェクタ側に流れる
+  const po = await actor(tP);
+  await po.post('投影に重なる');
+  await proj.waitForFunction(() => (window.__overlay?.flow?.activeCount ?? 0) > 0, { timeout: 25000 });
+
+  assert(errors.length === 0, `エラー: ${errors.join(' / ')}`);
+  await ctx.close();
 });
 
 await browser.close();

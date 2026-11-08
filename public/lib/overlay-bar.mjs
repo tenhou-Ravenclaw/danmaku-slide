@@ -78,20 +78,6 @@ export function mountBar(overlay, { autoPick = false } = {}) {
     else { el('full').textContent = '全画面をやめる'; msg(''); }
   });
 
-  // --- 帯で浮かせる（Document PiP）--------------------------------------
-  if (!overlay.pip.isSupported()) {
-    el('float').disabled = true;
-    el('float').title = 'このブラウザは対応していない（Chrome か Edge）';
-  }
-  overlay.onFloatChange((on) => {
-    el('float').textContent = on ? '帯をやめる' : '帯で浮かせる';
-  });
-  el('float').addEventListener('click', async () => {
-    if (overlay.isFloating) { overlay.unfloat(); return; }
-    const r = await overlay.floatOut();
-    if (!r.ok) msg(r.reason, 'bad');
-  });
-
   document.addEventListener('fullscreenchange', () => {
     el('full').textContent = overlay.screens.isFullscreen() ? '全画面をやめる' : '全画面にする';
     showBar();

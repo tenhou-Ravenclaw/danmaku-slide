@@ -1,0 +1,145 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>登壇する</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#0b0b0f">
+<style>
+  :root {
+    color-scheme: dark;
+    --bg:#0b0b0f; --surface:#15151d; --surface2:#1c1c26; --line:#2a2a38;
+    --ink:#e8e8ef; --muted:#8a8a99;
+    --accent:#6f8cff; --stop:#ff6b6b; --go:#5fd39a; --warn:#ffc46b;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin:0; min-height:100%; background:var(--bg); color:var(--ink);
+    font:16px/1.6 -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Noto Sans JP", sans-serif; }
+  main { max-width:58rem; margin:0 auto; padding:1.75rem 1.25rem 5rem; display:grid; gap:1rem; }
+
+  h1 { margin:0; font-size:.75rem; font-weight:600; letter-spacing:.09em;
+       text-transform:uppercase; color:var(--muted); }
+  section { background:var(--surface); border:1px solid var(--line); border-radius:.8rem; padding:1.05rem 1.2rem; }
+  section h2 { margin:0 0 .75rem; font-size:.95rem; font-weight:600; }
+  .row { display:flex; flex-wrap:wrap; gap:.6rem; align-items:center; }
+  .grow { flex:1 1 11rem; min-width:0; }
+
+  button, select, input {
+    padding:.65rem 1rem; border-radius:.55rem; font:inherit; font-weight:600;
+    background:var(--surface2); color:var(--ink); border:1px solid var(--line); cursor:pointer;
+  }
+  input { font-weight:400; cursor:text; width:100%; }
+  button:hover:not(:disabled) { background:#23232f; }
+  button:disabled { opacity:.4; cursor:default; }
+  button.primary { background:var(--accent); color:#0b0b12; border-color:transparent; }
+  button.stop { background:var(--stop); color:#1a0606; border-color:transparent; flex:1 1 100%; padding:.95rem; font-size:1.02rem; }
+  button.resume { background:var(--go); color:#06180f; border-color:transparent; flex:1 1 100%; padding:.95rem; }
+
+  /* 手順。いまどこにいるか分かるようにする */
+  ol.steps { list-style:none; margin:0; padding:0; display:grid; gap:.55rem; counter-reset:s; }
+  ol.steps li {
+    display:grid; grid-template-columns:1.55rem 1fr; gap:.7rem; align-items:center;
+    padding:.6rem .7rem; border-radius:.55rem; border:1px solid transparent;
+  }
+  ol.steps li::before {
+    counter-increment:s; content:counter(s);
+    width:1.5rem; height:1.5rem; border-radius:.4rem; display:grid; place-items:center;
+    font-size:.78rem; background:var(--surface2); color:var(--muted); border:1px solid var(--line);
+  }
+  ol.steps li[data-state="done"]::before { background:var(--go); color:#06180f; content:"✓"; border-color:transparent; }
+  ol.steps li[data-state="now"] { border-color:var(--accent); background:rgba(111,140,255,.08); }
+  ol.steps li[data-state="now"]::before { background:var(--accent); color:#0b0b12; border-color:transparent; }
+  ol.steps .what { font-size:.93rem; }
+  ol.steps .hint { display:block; font-size:.78rem; color:var(--muted); font-weight:400; }
+
+  #state { display:flex; align-items:center; gap:.55rem; font-size:.92rem; color:var(--muted); }
+  #dot { width:.6rem; height:.6rem; border-radius:50%; background:var(--muted); flex:none; }
+  #state[data-kind="live"]    #dot { background:var(--go); box-shadow:0 0 0 4px rgba(95,211,154,.18); }
+  #state[data-kind="stopped"] #dot { background:var(--warn); }
+  #state[data-kind="error"]   #dot { background:var(--stop); }
+
+  /* 届いているコメント。登壇者が手元で見る */
+  #feed { display:grid; gap:.3rem; max-height:14rem; overflow-y:auto; margin:0; padding:0; list-style:none; }
+  #feed li { padding:.4rem .6rem; border-radius:.4rem; background:var(--surface2);
+             font-size:.9rem; word-break:break-word; }
+  #feed li.me { border-left:2px solid var(--accent); }
+  #feed:empty::after { content:"まだ届いていない"; color:var(--muted); font-size:.85rem; }
+  .count { font-family:ui-monospace, SFMono-Regular, Menlo, monospace; color:var(--muted); font-size:.8rem; }
+
+  .hint { margin:.5rem 0 0; font-size:.79rem; color:var(--muted); }
+  .hidden { display:none; }
+  code { font-family:ui-monospace, Menlo, monospace; background:var(--surface2);
+         padding:.1rem .35rem; border-radius:.25rem; font-size:.85em; }
+</style>
+
+<main>
+  <h1>登壇する</h1>
+
+  <section>
+    <div id="state" data-kind=""><span id="dot"></span><span id="stateText">読み込み中</span></div>
+  </section>
+
+  <section id="setupBox">
+    <h2>はじめる</h2>
+    <ol class="steps">
+      <li id="s1"><span class="what">スライドを取り込む
+        <span class="hint">Google Slides のスライドウィンドウを選ぶ</span></span></li>
+      <li id="s2"><span class="what">プロジェクタに出す
+        <span class="hint">向こうの画面に弾幕の窓が開く</span></span></li>
+      <li id="s3"><span class="what">開いた窓を1回クリックして全画面にする
+        <span class="hint">これ以降その窓は触らなくていい</span></span></li>
+      <li id="s4"><span class="what">スライドに戻って、いつも通り発表する
+        <span class="hint">操作はこの画面とスライドだけ</span></span></li>
+    </ol>
+    <div class="row" style="margin-top:.9rem">
+      <button id="pick" class="primary">スライドを取り込む</button>
+      <select id="screen" class="hidden"></select>
+      <button id="project" disabled>プロジェクタに出す</button>
+      <button id="closeProj" class="hidden">弾幕の窓を閉じる</button>
+    </div>
+    <p class="hint" id="setupHint"></p>
+  </section>
+
+  <section id="stopBox">
+    <h2>投稿の受付</h2>
+    <div class="row">
+      <button id="stop" class="stop">投稿を止める</button>
+      <button id="resume" class="resume hidden">投稿を再開する</button>
+    </div>
+    <p class="hint">荒らされたときの最終手段。押した瞬間から新しい投稿は拒否される。</p>
+  </section>
+
+  <section>
+    <h2>届いているコメント <span class="count" id="count">0</span></h2>
+    <ul id="feed"></ul>
+    <div class="row" style="margin-top:.75rem">
+      <input id="testText" placeholder="テスト用のコメント" maxlength="60" value="テストです">
+      <button id="testSend">自分で流してみる</button>
+    </div>
+    <p class="hint">登壇前のリハーサルに使う。ふつうの投稿と同じように流れる。</p>
+  </section>
+
+  <section>
+    <h2>観客に配る</h2>
+    <div class="row">
+      <div id="qrSlot"></div>
+      <div class="grow">
+        <div id="postUrl" class="count" style="word-break:break-all"></div>
+        <div class="row" style="margin-top:.6rem">
+          <button id="copy">URLをコピー</button>
+          <button id="openPost">投稿ページを開く</button>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<script type="module">
+  const stateText = document.getElementById('stateText');
+  const state = document.getElementById('state');
+  const show = (m) => { stateText.textContent = `エラー: ${m}`; state.dataset.kind = 'error'; };
+  addEventListener('error', (e) => show(e.message ?? e.error));
+  addEventListener('unhandledrejection', (e) => show(e.reason?.message ?? e.reason));
+  try {
+    const { createStage } = await import('./lib/stage.mjs');
+    window.__stage = await createStage({ trackId: new URLSearchParams(location.search).get('track') });
+  } catch (e) { show(e?.message ?? e); }
+</script>

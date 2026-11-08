@@ -60,6 +60,19 @@
   #hud[data-kind="error"]   { color: #ffd2d2; background: rgba(120, 20, 20, 0.85); border-color: rgba(255,120,120,.4); }
   #hud[data-kind="stopped"] { color: #ffe6b8; background: rgba(110, 72, 10, 0.85); border-color: rgba(255,200,110,.35); }
   html.no-hud #hud { display: none; }
+
+  /*
+   * 全画面はユーザー操作からしか呼べない。親ウィンドウの操作は引き継がれないので、
+   * この窓の中で1回だけ押してもらう。押したらもう触らなくていい。
+   */
+  #cover {
+    position: fixed; inset: 0; z-index: 9; border: 0; cursor: pointer;
+    display: grid; place-content: center; gap: .5rem; text-align: center;
+    background: #0b0b0f; color: #e8e8ef;
+    font: 600 1.4rem/1.6 -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Noto Sans JP", sans-serif;
+  }
+  #cover small { font-size: .85rem; font-weight: 400; color: #8a8a99; }
+  #cover[hidden] { display: none; }
 </style>
 
 <canvas id="stage"></canvas>
@@ -77,10 +90,15 @@
   <button id="drop" hidden>取り込みをやめる</button>
   <select id="screen" hidden></select>
   <button id="full">全画面にする</button>
-  <button id="float">帯で浮かせる</button>
   <span class="spacer"></span>
   <span id="barMsg" data-kind=""></span>
 </div>
+
+<!-- 親ウィンドウから開かれたとき。全画面はこの窓の中で押さないと効かない。 -->
+<button id="cover" hidden>
+  <span>クリックして全画面にする</span>
+  <small>このあとは触らなくていい</small>
+</button>
 
 <div id="hud" data-kind="ok">読み込み中</div>
 
@@ -108,6 +126,19 @@
     });
     window.__overlay = overlay;
     mountBar(overlay, { autoPick: q.get('capture') === '1' });
+
+    // 登壇者のコントロール画面から開かれた場合
+    if (q.get('stage') === '1') {
+      document.documentElement.classList.add('no-bar');
+      const cover = document.getElementById('cover');
+      cover.hidden = false;
+      cover.addEventListener('click', async () => {
+        try { await document.documentElement.requestFullscreen(); } catch {}
+        cover.hidden = true;
+      });
+      // 親に「受け取れる」と伝える。映像は親が取り込んだものをそのまま渡してもらう。
+      window.opener?.__projectorReady?.(overlay, window);
+    }
   } catch (e) {
     show(e?.message ?? e);
   }
