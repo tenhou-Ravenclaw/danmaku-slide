@@ -178,19 +178,6 @@ test('待機列は古い順に捌かれる', () => {
   assert.equal(f.pendingCount, 1);
 });
 
-test('登壇者交代で流れは消えるが、重複排除は残る', () => {
-  const f = flow();
-  const x = { id: 'x', text: 'あ', width: 200 };
-  f.add(x, 0);
-  assert.equal(f.activeCount, 1);
-
-  f.resetFlow();
-  assert.equal(f.activeCount, 0);
-  assert.equal(f.pendingCount, 0);
-  assert.equal(f.step(0).length, 0);
-  assert.equal(f.add(x, 0), 'dup', 'session を跨いでも再配信は流さない');
-});
-
 test('markSeen したものは流れない', () => {
   const f = flow();
   f.markSeen('old');
@@ -228,7 +215,6 @@ test('内部で現在時刻を読まない', () => {
     const f = flow();
     f.add(c(), 0);
     f.step(1000);
-    f.resetFlow();
   } finally {
     Date.now = real;
   }

@@ -100,14 +100,6 @@ export class DanmakuFlow {
    */
   markSeen(id) { this.seen.add(id); }
 
-  /** 登壇者が交代したとき。流れているものは消すが、seen は残す。 */
-  resetFlow() {
-    this.active = [];
-    this.pending = [];
-    this.lanes = new Array(this.laneCount).fill(0);
-    this.nextLane = 0;
-  }
-
   get pendingCount() { return this.pending.length; }
   get activeCount() { return this.active.length; }
 

@@ -5,7 +5,7 @@
 import { spawnSync } from 'node:child_process';
 
 const steps = [
-  ['純粋ロジック（77件）',     'npm', ['run', '--silent', 'test:unit']],
+  ['純粋ロジック（76件）',     'npm', ['run', '--silent', 'test:unit']],
   ['透過シェル（27件）',       'npm', ['run', '--silent', 'test:shell']],
   ['Rules の不変条件と生成物', 'npm', ['run', '--silent', 'lint:rules']],
   ['秘密情報（履歴）',         'npm', ['run', '--silent', 'lint:secrets']],
