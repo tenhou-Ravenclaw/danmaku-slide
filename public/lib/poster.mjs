@@ -76,6 +76,8 @@ export async function createPoster({ eventId, trackId, now = () => Date.now() } 
     const notLive = track === null || track.stopped || !track.live;
     const blocked = len === 0 || over > 0 || waitMs > 0 || notLive;
     el('send').disabled = blocked;
+    // 入力そのものが不正なのか、周りの都合で送れないのかを区別して伝える
+    el('text').setAttribute('aria-invalid', over > 0 ? 'true' : 'false');
     // 待っている間は、ボタンにも残り秒数を出す。状態行だけだと見落とす。
     el('send').textContent = waitMs > 0 ? `あと${Math.ceil(waitMs / 1000)}秒` : '送信';
 

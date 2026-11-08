@@ -20,8 +20,9 @@
   #count { align-self: flex-end; font-size: .8rem; color: var(--muted); font-variant-numeric: tabular-nums; }
   #count[data-over="1"] { color: var(--bad); font-weight: 700; }
 
-  #send { padding: .95rem; font-size: 1rem; background: var(--surface2); color: var(--ink);
-          border: 1px solid var(--line2); }
+  /* 指で押すものなので 48px を下回らせない */
+  #send { min-height: 48px; padding: .95rem; font-size: 1rem;
+          background: var(--surface2); color: var(--ink); border: 1px solid var(--line2); }
   #send:not(:disabled) { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
 
   #note { min-height: 2.6rem; margin: 0; font-size: .85rem; color: var(--muted); }
@@ -36,12 +37,16 @@
     <div id="title">接続中…</div>
   </div>
 
+  <!-- 送れない理由は入力欄に紐づける。離れた場所に出すと、何が悪いのか結びつかない。 -->
+  <label for="text" class="visually-hidden">コメント</label>
   <textarea id="text" rows="4" placeholder="コメントを入力"
-    enterkeyhint="send" autocomplete="off" autocapitalize="off"></textarea>
+    enterkeyhint="send" autocomplete="off" autocapitalize="off"
+    aria-describedby="count note"></textarea>
   <span id="count" data-over="">0 / 60</span>
 
   <button id="send" class="btn block" disabled>送信</button>
-  <p id="note" data-kind="">送るとスライドの上に流れます</p>
+  <!-- 状態が変わったことを読み上げる。番号だけでなく文として伝える。 -->
+  <p id="note" data-kind="" role="status" aria-atomic="true">送るとスライドの上に流れます</p>
 </main>
 
 <script type="module">

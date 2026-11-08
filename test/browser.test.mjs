@@ -634,6 +634,72 @@ await t('弾幕本体は端末が明るくても暗いまま', async () => {
   await r.page.close(); await org.page.close();
 });
 
+// --- 読み上げと指で押せる大きさ -----------------------------------------
+await t('送れない理由が入力欄に紐づいている', async () => {
+  // 離れた場所に出すと、何が悪いのか結びつかない
+  const org = await makeLiveEvent('読み上げの会', ['Track A']);
+  const { page } = await open(`${HOST}/post.html?emu=1&e=${org.eventId}&t=a`);
+  await page.waitForFunction(
+    () => /Track A/.test(document.getElementById('track')?.textContent ?? ''), { timeout: 20000 });
+
+  const described = await page.getAttribute('#text', 'aria-describedby');
+  assert(/\bnote\b/.test(described ?? ''), `note に紐づいていない: ${described}`);
+  assert(await page.getAttribute('#note', 'role') === 'status', '状態として読み上げられない');
+
+  await page.fill('#text', 'あ'.repeat(61));
+  await page.waitForFunction(
+    () => document.getElementById('text').getAttribute('aria-invalid') === 'true', { timeout: 10000 });
+  await page.fill('#text', 'みじかい');
+  await page.waitForFunction(
+    () => document.getElementById('text').getAttribute('aria-invalid') === 'false', { timeout: 10000 });
+  await page.close(); await org.page.close();
+});
+
+await t('送信ボタンは指で押せる大きさがある', async () => {
+  const org = await makeLiveEvent('大きさの会', ['Track A']);
+  const { page } = await open(`${HOST}/post.html?emu=1&e=${org.eventId}&t=a`);
+  await page.waitForFunction(
+    () => /Track A/.test(document.getElementById('track')?.textContent ?? ''), { timeout: 20000 });
+  const box = await page.locator('#send').boundingBox();
+  assert(box.height >= 44, `高さが足りない: ${box.height}`);
+  await page.close(); await org.page.close();
+});
+
+await t('件数は数字だけでなく文として読み上げる', async () => {
+  // 「3」とだけ読まれても何のことか分からない
+  const org = await makeLiveEvent('件数の会', ['Track A']);
+  const { page } = await open(await speakerLink(org.page));
+  await page.waitForFunction(
+    () => /受付中/.test(document.getElementById('stateText')?.textContent ?? ''), { timeout: 20000 });
+  const label = await page.locator('#countLabel');
+  assert(await label.getAttribute('role') === 'status', '状態として読み上げられない');
+  assert(/件 届いています/.test((await label.textContent()).trim()), await label.textContent());
+  await page.close(); await org.page.close();
+});
+
+await t('表に見出しの対応と説明がある', async () => {
+  const org = await makeEventInBrowser('表の会', ['Track A']);
+  const scopes = await org.page.evaluate(() =>
+    [...document.querySelectorAll('#tracks')].map((tb) =>
+      [...tb.closest('table').querySelectorAll('thead th')].map((th) => th.getAttribute('scope'))).flat());
+  assert(scopes.filter((v) => v === 'col').length >= 5, `scope が足りない: ${scopes}`);
+  assert(await org.page.evaluate(() =>
+    document.querySelector('#tracks').closest('table').querySelector('caption') !== null),
+    '表の説明が無い');
+  await org.page.close();
+});
+
+await t('狭い画面でも本文が横にずれない', async () => {
+  // 表は画面が狭いとはみ出す。本文ごとスクロールさせない。
+  const org = await makeEventInBrowser('狭い画面の会', ['Track A']);
+  await org.page.setViewportSize({ width: 390, height: 800 });
+  await org.page.waitForTimeout(400);
+  const overflow = await org.page.evaluate(() =>
+    document.documentElement.scrollWidth - document.documentElement.clientWidth);
+  assert(overflow <= 1, `横にはみ出している: ${overflow}px`);
+  await org.page.close();
+});
+
 await browser.close();
 await capBrowser.close();
 for (const [st, name, msg] of rows) console.log(`  ${st} ${name}${msg ? '\n         -> ' + msg : ''}`);

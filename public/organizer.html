@@ -21,6 +21,7 @@
 
   /* 詳細 */
   .head { display: flex; flex-wrap: wrap; gap: 1rem; align-items: flex-start; }
+  .head > * { min-width: 0; }
   .head .grow { flex: 1 1 18rem; }
   .qrcard { display: flex; gap: .9rem; align-items: flex-start; padding: .9rem 1rem; }
   .qrcard .slot { width: 84px; height: 84px; flex: none; display: grid; place-items: center;
@@ -55,7 +56,7 @@
 </div>
 
 <main class="page stack">
-  <p id="msg" data-kind=""></p>
+  <p id="msg" data-kind="" role="status" aria-atomic="true"></p>
 
   <!-- サインインしていないとき -->
   <section id="gateView" class="card hidden" style="padding:2rem 1.5rem;text-align:center">
@@ -84,14 +85,21 @@
     </div>
 
     <h2 class="section">これから・開催中</h2>
-    <div class="card"><table class="rows">
-      <thead><tr><th>イベント名</th><th>開催日</th><th>トラック</th><th>受付状況</th><th></th></tr></thead>
+    <!-- 表は画面が狭いとはみ出す。横に逃がす。 -->
+    <div class="card scroller"><table class="rows">
+      <caption class="visually-hidden">これから開催するイベント</caption>
+      <thead><tr>
+        <th scope="col">イベント名</th><th scope="col">開催日</th>
+        <th scope="col">トラック</th><th scope="col">受付状況</th><th><span class="visually-hidden">開く</span></th>
+      </tr></thead>
       <tbody id="upcoming"></tbody>
     </table></div>
     <p id="noUpcoming" class="muted hidden" style="font-size:.85rem">まだイベントがありません。</p>
 
     <h2 class="section">終わったイベント</h2>
-    <div class="card"><table class="rows"><tbody id="past"></tbody></table></div>
+    <div class="card scroller"><table class="rows">
+      <caption class="visually-hidden">終わったイベント</caption>
+      <tbody id="past"></tbody></table></div>
     <p id="noPast" class="muted hidden" style="font-size:.85rem">ありません。</p>
   </section>
 
@@ -126,11 +134,13 @@
       <span class="muted" style="font-size:.8rem">トラックのURLは当日中変わりません。登壇者が代わってもQRは貼り替え不要です。</span>
     </div>
 
-    <div class="card"><table class="rows">
+    <div class="card scroller"><table class="rows">
+      <caption class="visually-hidden">トラックの一覧</caption>
       <thead><tr>
-        <th>トラック</th><th>受付</th>
-        <th style="text-align:right">届いた件数</th>
-        <th>登壇者に渡す</th><th>観客に配る</th><th></th>
+        <th scope="col">トラック</th><th scope="col">受付</th>
+        <th scope="col" style="text-align:right">届いた件数</th>
+        <th scope="col">登壇者に渡す</th><th scope="col">観客に配る</th>
+        <th><span class="visually-hidden">削除</span></th>
       </tr></thead>
       <tbody id="tracks"></tbody>
       <tfoot><tr>

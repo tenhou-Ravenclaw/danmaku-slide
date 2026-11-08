@@ -175,14 +175,46 @@ table.rows tbody tr:last-child td { border-bottom: 0; }
 
 /* --- 画面の骨 ----------------------------------------------------------- */
 .topbar {
-  display: flex; align-items: center; gap: .6rem;
+  display: flex; align-items: center; gap: .6rem; flex-wrap: wrap;
   padding: .85rem 1.25rem; background: var(--surface); border-bottom: 1px solid var(--line);
 }
+.topbar > * { min-width: 0; }
 .topbar .name { font-weight: 700; letter-spacing: .01em; }
-.topbar .spacer { flex: 1; }
+/* 名前が長いと押し出す。縮んで省略されるほうがいい。 */
+.topbar #who { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.topbar .spacer { flex: 1 1 0; min-width: 0; }
 
 .page { max-width: 62rem; margin: 0 auto; padding: 1.75rem 1.25rem 5rem; }
-.stack { display: grid; gap: 1rem; }
+.stack { display: grid; gap: 1rem; min-width: 0; }
+.stack > * { min-width: 0; }
 .row { display: flex; flex-wrap: wrap; gap: .6rem; align-items: center; }
 .row.tight { gap: .4rem; }
 .grow { flex: 1 1 12rem; min-width: 0; }
+
+/* 目には出さないが読み上げには残す。見出しのない列や表の説明に使う。 */
+.visually-hidden {
+  position: absolute; width: 1px; height: 1px; margin: -1px;
+  padding: 0; border: 0; overflow: hidden; white-space: nowrap;
+  clip-path: inset(50%);
+}
+
+/* 表は画面が狭いとはみ出す。本文ごと横スクロールさせない。
+   overflow だけでは足りない。grid/flex の子は中身の幅まで広がるので、
+   min-width を切って初めて縮む。
+   position: relative も要る。中の絶対配置（読み上げ用の隠し文字など）が
+   基準を見つけられないと、ページ全体を基準にして幅を押し広げる。 */
+.scroller { position: relative; overflow-x: auto; min-width: 0; max-width: 100%; }
+.scroller > table { min-width: max-content; }
+
+/* 押すものは指でも届く大きさにする。Web は 24px が下限だが、
+   実際に指で押す場面では 44〜48px ないと外す。 */
+.btn.lg, .btn.block { min-height: 48px; }
+
+/* 動きを減らす設定の人には動かさない。 */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+  }
+}

@@ -53,6 +53,8 @@
   .feedhead .n { margin-left: auto; font-size: .85rem; color: var(--muted);
                  font-variant-numeric: tabular-nums; }
   #feed { list-style: none; margin: 0; padding: 0; overflow-y: auto; max-height: 60vh; }
+  /* 押すものは指でも届く大きさにする */
+  #stopBtn, #resumeBtn, #startBtn, #endBtn, #openApp { min-height: 48px; }
   #feed li { display: flex; gap: 1rem; align-items: baseline;
              padding: .7rem 1.1rem; border-bottom: 1px solid var(--line); }
   #feed li:last-child { border-bottom: 0; }
@@ -67,7 +69,7 @@
     <div class="t" id="trackName">—</div>
     <div class="s" id="eventName">—</div>
   </div>
-  <div class="state" id="state" data-kind="">
+  <div class="state" id="state" data-kind="" role="status" aria-atomic="true">
     <span class="dot"></span>
     <span><span class="t" id="stateText">読み込み中</span><br><span class="s" id="stateSub"></span></span>
   </div>
@@ -104,7 +106,9 @@
   <section class="card feedcard">
     <div class="feedhead">
       <h2>届いているコメント</h2>
-      <span class="n"><span id="count">0</span> 件</span>
+      <!-- 数字だけを読み上げても意味が伝わらない。文として1つにまとめる。 -->
+      <span class="n" id="countLabel" role="status" aria-atomic="true">
+        <span id="count">0</span> 件 届いています</span>
     </div>
     <ul id="feed"></ul>
     <div id="feedEmpty">まだ届いていません</div>
