@@ -154,13 +154,25 @@ export async function createOrganizer({ eventId, random = () => Math.random() } 
     el('detailView').classList.remove('hidden');
 
     let tracks = [];
+    let heldOn = null;
     let painted = false;
+
+    /**
+     * 見出しの下の一行。
+     *
+     * イベントとトラックは別々に届く。たいていイベントのほうが先に来るので、
+     * そのとき tracks はまだ空。片方だけで書くと「0 トラック」で固まる。
+     */
+    const paintMeta = () => {
+      el('evMeta').textContent =
+        [formatDate(heldOn), `${tracks.length} トラック`].filter(Boolean).join(' · ');
+    };
 
     events.watchEvent(id, (ev) => {
       if (!ev) { fail(`イベントが見つからない: ${id}`); return; }
       el('evName').textContent = ev.name;
-      el('evMeta').textContent =
-        [formatDate(ev.heldOn), `${tracks.length} トラック`].filter(Boolean).join(' · ');
+      heldOn = ev.heldOn;
+      paintMeta();
       // 打っている最中に上書きしない
       if (document.activeElement !== el('evNameInput')) el('evNameInput').value = ev.name ?? '';
       if (document.activeElement !== el('evDateInput')) el('evDateInput').value = ev.heldOn ?? '';
@@ -199,6 +211,7 @@ export async function createOrganizer({ eventId, random = () => Math.random() } 
 
     events.watchTracks(id, (rows) => {
       tracks = rows;
+      paintMeta();
       paintTracks(id, rows);
       suggestTrackName(rows);
     }, (e) => fail(`トラックを読めない: ${e.code ?? e.message}`));

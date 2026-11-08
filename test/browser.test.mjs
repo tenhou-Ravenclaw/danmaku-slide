@@ -162,6 +162,30 @@ await t('トラックを並べると名前順で表に出る', async () => {
   await page.close();
 });
 
+await t('見出しの下にトラック数が出る', async () => {
+  // イベントとトラックは別々に届く。イベントのほうが先に来るので、
+  // 片方だけで書くと「0 トラック」で固まる。
+  const org = await makeEventInBrowser('件数表示の会', ['Track A', 'Track B']);
+  await org.page.waitForFunction(
+    () => /2 トラック/.test(document.getElementById('evMeta')?.textContent ?? ''), { timeout: 20000 });
+  // 足したら増える
+  await org.page.fill('#newTrackName', 'Track C');
+  await org.page.click('#addTrack');
+  await org.page.waitForFunction(
+    () => /3 トラック/.test(document.getElementById('evMeta')?.textContent ?? ''), { timeout: 20000 });
+  await org.page.close();
+});
+
+await t('登壇用リンクの説明が合言葉を名乗らない', async () => {
+  // 合言葉は廃止した。「渡した人だけが操作できます」と書いたままにすると、
+  // 運営が安全性を誤解する。
+  const org = await makeEventInBrowser('説明の会', ['Track A']);
+  const foot = await org.page.textContent('.foot');
+  assert(!/渡した人だけ|新しい合言葉/.test(foot), `古い説明が残っている: ${foot}`);
+  assert(/止めたり開けたりすることはできません/.test(foot), foot);
+  await org.page.close();
+});
+
 await t('登壇用リンクは合言葉を持たない', async () => {
   // 登壇者に操作権が無いので、鍵を配る必要がない。
   // 何も開けない鍵を渡すと、持っている側が権限があると思い込む。
