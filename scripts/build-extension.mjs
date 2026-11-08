@@ -15,9 +15,12 @@ const config = JSON.parse(readFileSync('.firebase-config.json', 'utf8'));
 // 出力先も分ける。同じ場所に書くと、テストを回しただけで手元に入れた拡張が
 // エミュレータ向けに差し替わり、本番のコメントが流れなくなる。
 const forTest = process.env.EXT_TEST === '1';
-const outDir = forTest ? '.ext-test' : 'extension';
+// 切り分け用。本番の Firestore に繋ぎつつ、手元の模擬ページにも差し込む。
+// 「拡張 ↔ 本番」と「Google のページ特有の事情」を分けて見るために要る。
+const forDiag = process.env.EXT_DIAG === '1';
+const outDir = forTest ? '.ext-test' : (forDiag ? '.ext-diag' : 'extension');
 const matches = ['https://docs.google.com/presentation/*'];
-if (forTest) matches.push('http://127.0.0.1/*', 'http://localhost/*');
+if (forTest || forDiag) matches.push('http://127.0.0.1/*', 'http://localhost/*');
 
 const manifest = {
   manifest_version: 3,
@@ -28,7 +31,7 @@ const manifest = {
   host_permissions: [
     'https://docs.google.com/*',
     'https://*.googleapis.com/*',
-    ...(forTest ? ['http://127.0.0.1/*', 'http://localhost/*'] : []),
+    ...(forTest || forDiag ? ['http://127.0.0.1/*', 'http://localhost/*'] : []),
   ],
   action: { default_popup: 'popup.html', default_title: '弾幕スライド' },
   background: { service_worker: 'background.js' },
@@ -36,7 +39,7 @@ const manifest = {
 };
 mkdirSync(outDir, { recursive: true });
 // テスト用の出力先には、生成物でないファイルもコピーしておく
-if (forTest) for (const f of ['popup.html', 'popup.js', 'background.js'])
+if (forTest || forDiag) for (const f of ['popup.html', 'popup.js', 'background.js'])
   copyFileSync(`extension/${f}`, `${outDir}/${f}`);
 writeFileSync(`${outDir}/manifest.json`, JSON.stringify(manifest, null, 2) + '\n');
 
@@ -46,7 +49,7 @@ const r = await build({
   bundle: true,
   format: 'iife',
   target: 'es2022',
-  minify: !forTest,
+  minify: !forTest && !forDiag,
   legalComments: 'none',
   define: {
     __FIREBASE_CONFIG__: JSON.stringify(config),
@@ -58,7 +61,7 @@ const out = Object.entries(r.metafile.outputs)[0];
 
 // 本番の成果物にエミュレータ接続が残っていないことを確かめる。
 // 残っていると「テストを回したら本番のコメントが流れない」事故に戻る。
-if (!forTest) {
+if (!forTest && !forDiag) {
   const code = readFileSync(out[0], 'utf8');
   const leaks = ['127.0.0.1:8181', '127.0.0.1', ':9099', 'localhost:']
     .filter((needle) => code.includes(needle));
@@ -72,4 +75,4 @@ if (!forTest) {
   }
 }
 
-console.log(`✓ ${out[0]}  ${(out[1].bytes / 1024).toFixed(0)} KB${forTest ? '（テスト用: ローカルにも差し込む）' : ''}`);
+console.log(`✓ ${out[0]}  ${(out[1].bytes / 1024).toFixed(0)} KB${forTest ? '（テスト用）' : forDiag ? '（切り分け用: 本番に繋ぐ）' : ''}`);

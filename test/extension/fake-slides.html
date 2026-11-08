@@ -17,6 +17,9 @@
 <script>
   // クリックがここまで届けば「透けている」
   window.__clicks = 0;
+  // 相手は SPA なので、描き直しでこちらの要素ごと消えることがある。
+  // そのときに付け直せるかを見るための仕掛け。
+  window.__wipe = () => { document.body.innerHTML = document.body.innerHTML; };
   document.getElementById('deck').addEventListener('click', () => {
     window.__clicks++;
     document.getElementById('count').textContent = 'クリック回数: ' + window.__clicks;

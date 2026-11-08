@@ -59,13 +59,31 @@ async function main() {
   ].join(';');
   document.body.append(canvas);
 
-  // 全画面になると、その要素の中にいないと描かれない
+  /**
+   * 置き場所を保つ。
+   *
+   * 相手は SPA なので、描き直しのたびにこちらの canvas ごと消されることがある。
+   * 全画面になったときは、その要素の中にいないと描かれない。
+   * どちらも静かに起きるので、毎フレーム見て required なら付け直す。
+   */
+  function hostFor() {
+    const fs = document.fullscreenElement;
+    if (!fs) return document.body;
+    // iframe が全画面になると、こちらからは中へ入れない
+    if (fs.tagName === 'IFRAME') return null;
+    return fs;
+  }
+  let lostHost = false;
   function reparent() {
-    const host = document.fullscreenElement ?? document.body;
-    if (canvas.parentElement !== host) host.append(canvas);
+    const host = hostFor();
+    if (!host) {
+      if (!lostHost) { lostHost = true; status('全画面の中に入れない（別の出し方が要る）', false); }
+      return;
+    }
+    lostHost = false;
+    if (canvas.parentElement !== host || !canvas.isConnected) host.append(canvas);
   }
   document.addEventListener('fullscreenchange', () => { reparent(); fit(); });
-  // 差し込んだ時点ですでに全画面のことがある。イベントは来ないので自分で見る。
   reparent();
 
   const flow = new DanmakuFlow();
@@ -79,7 +97,12 @@ async function main() {
   window.addEventListener('resize', fit);
   fit();
 
+  let lastHost = null;
   function frame(t) {
+    // 消されていないか、全画面の中にいるかを毎フレーム確かめる。
+    // 参照の比較だけなので安い。
+    const host = hostFor();
+    if (!canvas.isConnected || host !== lastHost) { reparent(); lastHost = host; fit(); }
     renderer.draw(flow.step(t));
     requestAnimationFrame(frame);
   }
@@ -118,7 +141,21 @@ async function main() {
   }, (e) => { status(`トラックを読めない: ${e.code ?? e.message}`, false); console.warn(e); });
 
   // 動作確認用。ページのコンソールからは触れない（分離された世界なので）
-  globalThis.__danmaku = { flow, renderer, bus, canvas, status };
+  globalThis.__danmaku = {
+    flow, renderer, bus, canvas, status,
+    /** 困ったときに読む。拡張の世界からしか触れない。 */
+    report: () => ({
+      trackId,
+      connected: canvas.isConnected,
+      parent: canvas.parentElement?.tagName ?? null,
+      fullscreen: document.fullscreenElement?.tagName ?? null,
+      size: `${canvas.width}x${canvas.height}`,
+      lanes: flow.laneCount,
+      active: flow.activeCount,
+      seen: flow.seen.size,
+      badge: badge.textContent,
+    }),
+  };
   console.info('[弾幕スライド] 重ねた:', trackId);
 }
 

@@ -183,6 +183,40 @@ await t('投稿するとスライドの上に描かれる', async () => {
   await page.close();
 });
 
+await t('ページに消されても canvas を付け直す', async () => {
+  // Google スライドは SPA なので、描き直しでこちらの要素ごと消えることがある
+  const page = await ctx.newPage();
+  await page.goto(PRESENT);
+  await page.waitForFunction(() => document.getElementById('danmaku-slide-overlay') !== null,
+    { timeout: 15000 });
+  await page.evaluate(() => { document.getElementById('danmaku-slide-overlay').remove(); });
+  assert(await page.evaluate(() => document.getElementById('danmaku-slide-overlay') === null),
+    '消せていない');
+  await page.waitForFunction(() => document.getElementById('danmaku-slide-overlay') !== null,
+    { timeout: 5000 });
+  await page.close();
+});
+
+await t('全画面になったらその中へ移る', async () => {
+  const page = await ctx.newPage();
+  await page.goto(PRESENT);
+  await page.waitForFunction(() => document.getElementById('danmaku-slide-overlay') !== null,
+    { timeout: 15000 });
+  // ユーザー操作からでないと全画面にできないので、クリックに乗せる
+  await page.evaluate(() => {
+    document.getElementById('deck').addEventListener('click', () => {
+      document.getElementById('deck').requestFullscreen();
+    }, { once: true });
+  });
+  await page.mouse.click(640, 360);
+  await page.waitForFunction(() => document.fullscreenElement !== null, { timeout: 8000 });
+  await page.waitForFunction(() => {
+    const c = document.getElementById('danmaku-slide-overlay');
+    return c && c.parentElement === document.fullscreenElement;
+  }, { timeout: 8000 });
+  await page.close();
+});
+
 await t('厳しい CSP のページでも差し込める', async () => {
   const page = await ctx.newPage();
   await page.goto(PRESENT_STRICT);
