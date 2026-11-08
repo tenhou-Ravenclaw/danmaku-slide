@@ -33,8 +33,8 @@
   <h1>弾幕スライド · 重ねる</h1>
 
   <div class="idle">
-    <label for="track">トラックID または 投稿URL</label>
-    <input id="track" placeholder="abc23xyz" autocomplete="off" spellcheck="false">
+    <label for="track">運営からのリンク</label>
+    <input id="track" placeholder="https://.../stage.html?e=…&t=…" autocomplete="off" spellcheck="false">
   </div>
 
   <div class="idle">
@@ -78,8 +78,8 @@
   })();
 
   // 運営のリンクから起動されたとき。登壇者に貼らせないための経路。
-  window.shell.onTrack?.((id) => {
-    $('track').value = id;
+  window.shell.onTrack?.((target) => {
+    $('track').value = `${target.eventId} ${target.trackId}`;
     msg('リンクからトラックを受け取った', 'ok');
     $('go').focus();
   });

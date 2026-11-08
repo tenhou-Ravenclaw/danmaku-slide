@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="ja" class="dark">
+<meta charset="utf-8">
+<title>トラックを選ぶ</title>
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0b0d12">
+<link rel="stylesheet" href="./css/app.css">
+<style>
+  body { min-height: 100dvh; display: flex; flex-direction: column;
+    padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
+  main { flex: 1; display: flex; flex-direction: column; padding: 1.75rem 1.25rem;
+         max-width: 32rem; width: 100%; margin: 0 auto; }
+  #event { font-size: .85rem; color: var(--muted); }
+  h1 { font-size: 1.55rem; font-weight: 700; line-height: 1.45; margin: .15rem 0 1.25rem; }
+
+  #list { list-style: none; margin: 0; padding: 0; display: grid; gap: .65rem; }
+  #list a {
+    display: flex; align-items: center; gap: 1rem; text-decoration: none; color: var(--ink);
+    padding: 1rem 1.1rem; border-radius: var(--radius);
+    background: var(--surface); border: 1px solid var(--line);
+  }
+  #list a:hover, #list a:focus-visible { background: var(--surface2); }
+  #list .t { font-size: 1.1rem; font-weight: 700; }
+  #list .s { font-size: .85rem; color: var(--muted); overflow: hidden;
+             text-overflow: ellipsis; white-space: nowrap; }
+  #list .chev { margin-left: auto; color: var(--muted); flex: none; }
+  #note { margin: 0; font-size: .85rem; color: var(--muted); }
+  #note[data-kind="bad"] { color: var(--bad); }
+  footer { margin-top: auto; padding-top: 2rem; font-size: .8rem; color: var(--muted); }
+</style>
+
+<main>
+  <div id="event">—</div>
+  <h1 id="heading">いる部屋のトラックを<br>選んでください</h1>
+  <ul id="list"></ul>
+  <p id="note" data-kind=""></p>
+  <footer>部屋の入口にQRがあれば、そちらから直接入れます。</footer>
+</main>
+
+<script type="module">
+  const note = document.getElementById('note');
+  const show = (m) => { note.textContent = `エラー: ${m}`; note.dataset.kind = 'bad'; };
+  addEventListener('error', (e) => show(e.message ?? e.error));
+  addEventListener('unhandledrejection', (e) => show(e.reason?.message ?? e.reason));
+  try {
+    const q = new URLSearchParams(location.search);
+    // /e/<id> から rewrite で来る。直接 ?e= でも開ける。
+    const fromPath = location.pathname.match(/^\/e\/([^/]+)\/?$/)?.[1];
+    const { createPicker } = await import('./lib/picker.mjs');
+    window.__picker = await createPicker({ eventId: q.get('e') ?? fromPath });
+  } catch (e) { show(e?.message ?? e); }
+</script>
+</html>

@@ -8,7 +8,7 @@ export { getAuth, signInAnonymously, onAuthStateChanged, connectAuthEmulator } f
 export {
   initializeFirestore,
   collection, doc, query, where, orderBy, limit,
-  onSnapshot, getDoc, setDoc, updateDoc,
+  onSnapshot, getDoc, getDocs, setDoc, updateDoc, deleteDoc,
   serverTimestamp, writeBatch, Timestamp,
   connectFirestoreEmulator,
 } from 'firebase/firestore';

@@ -1,101 +1,128 @@
-// 投稿ページの組み立て。
+// 投稿ページ。観客が暗い客席でスマホから使う。
 //
-// QR から開いて即打てることが要件なので、クリックを1つも増やさない。
-// 匿名サインインは開いた時点で済ませ、入力欄には最初からフォーカスを当てる。
-import { connect } from './app.mjs';
-import { MAX_TEXT, COOLDOWN_MS } from './bus.mjs';
+// 出す要素は5つだけ。トラック名・演題・入力欄・文字数・送信。
+// 送れないときに無言にしないことが、このページでいちばん大事。
+import { start } from './app.mjs';
+import { createBus, MAX_TEXT, COOLDOWN_MS } from './bus.mjs';
 
-/** Rules に弾かれた理由を、観客が読める言葉にする。 */
-const REASON = {
-  empty:    'なにか書いてから送る',
-  'too-long': `${MAX_TEXT}文字までしか送れない`,
-  cooldown: '連続では送れない',
-  stopped:  'この登壇はもう終わっている',
-  denied:   '送れなかった。少し待ってもう一度',
-  offline:  'つながっていない。電波を確かめてもう一度',
-};
+/**
+ * 送れない理由を観客の言葉にする。
+ * 文字数超過は「何文字削るか」まで出す。足りない情報は人が数えることになる。
+ */
+export function reasonText(kind, { over = 0, waitMs = 0 } = {}) {
+  switch (kind) {
+    case 'empty':     return 'なにか書いてから送ってください';
+    case 'too-long':  return `${MAX_TEXT}文字を超えています。あと${over}文字削ってください`;
+    case 'cooldown':  return `送信しました。あと${Math.ceil(waitMs / 1000)}秒で次を送れます`;
+    case 'stopped':   return 'この登壇は終わりました。次の登壇が始まると送れます';
+    case 'offline':   return 'つながっていません。電波を確かめてもう一度';
+    default:          return '送れませんでした。少し待ってもう一度';
+  }
+}
 
-export async function createPoster({ trackId, els, now = () => Date.now() }) {
-  const { where, text, count, send, note } = els;
-  const say = (msg, state = '') => { note.textContent = msg; note.dataset.state = state; };
+export async function createPoster({ eventId, trackId, now = () => Date.now() } = {}) {
+  const el = (id) => document.getElementById(id);
+  const note = (text, kind = '') => { el('note').textContent = text; el('note').dataset.kind = kind; };
 
-  if (!trackId) {
-    where.textContent = 'トラックが指定されていない';
-    say('QRコードをもう一度読み取る', 'bad');
+  if (!eventId || !trackId) {
+    el('title').textContent = 'リンクが正しくありません';
+    note('QRコードをもう一度読み取ってください', 'bad');
     return null;
   }
 
   let bus;
   try {
-    bus = await connect(trackId);
-  } catch (e) {
-    where.textContent = 'つながらない';
-    say(REASON.offline, 'bad');
+    const { uid, db, sdk } = await start();
+    bus = createBus(sdk, { db, eventId, trackId, uid, now });
+  } catch {
+    el('title').textContent = 'つながりません';
+    note(reasonText('offline'), 'bad');
     return null;
   }
 
   let track = null;
-  let cooldownTimer = 0;
+  let timer = 0;
 
   bus.watchTrack((t) => {
     track = t;
-    if (!t) { where.textContent = 'このトラックは存在しない'; say('QRコードを確かめる', 'bad'); refresh(); return; }
-    where.textContent = t.title ? `${t.name} · ${t.title}` : t.name;
-    if (t.stopped) say(REASON.stopped, 'wait');
-    else if (note.dataset.state === 'wait' && note.textContent === REASON.stopped) say('');
+    if (!t) {
+      el('track').textContent = 'このトラックはありません';
+      el('title').textContent = '';
+      note('QRコードを確かめてください', 'bad');
+      refresh();
+      return;
+    }
+    el('track').textContent = t.name;
+    // 停止中は演題ではなく状況を出す。再スキャンは要らないことを伝える。
+    el('title').textContent = t.stopped ? '次の登壇を待っています' : (t.title || '登壇の開始を待っています');
     refresh();
-  }, () => { where.textContent = '読み取れない'; say(REASON.denied, 'bad'); });
-
-  /** 送れる状態かを見直す。文字数・停止・クールダウンのどれかで変わる。 */
-  function refresh() {
-    const len = text.value.trim().length;
-    count.textContent = `${len} / ${MAX_TEXT}`;
-    count.dataset.state = len > MAX_TEXT ? 'over' : '';
-
-    const waiting = bus.cooldownRemaining() > 0;
-    send.disabled = len === 0 || len > MAX_TEXT || track?.stopped === true || waiting || track === null;
-    send.textContent = waiting ? `${Math.ceil(bus.cooldownRemaining() / 1000)} 秒待つ` : '送る';
-  }
+  }, () => { el('track').textContent = '読み取れません'; note(reasonText('denied'), 'bad'); });
 
   /**
-   * クールダウン中は毎秒表示を更新する。
-   * 無言で押せなくすると「壊れている」と思われるので、残り秒数を出す。
+   * 送れる状態かを見直す。
+   *
+   * 文字数超過でも入力は止めない。貼り付けを黙って切ると、何を消されたか分からない。
+   * 超えた分を数えて「あと何文字」を出す。
    */
-  function tickCooldown() {
-    clearInterval(cooldownTimer);
-    cooldownTimer = setInterval(() => {
+  function refresh() {
+    const len = el('text').value.trim().length;
+    const over = Math.max(0, len - MAX_TEXT);
+    el('count').textContent = `${len} / ${MAX_TEXT}`;
+    el('count').dataset.over = over > 0 ? '1' : '';
+    el('text').dataset.over = over > 0 ? '1' : '';
+
+    const waitMs = bus.cooldownRemaining();
+    const blocked = len === 0 || over > 0 || waitMs > 0 || track === null || track.stopped;
+    el('send').disabled = blocked;
+    // 待っている間は、ボタンにも残り秒数を出す。状態行だけだと見落とす。
+    el('send').textContent = waitMs > 0 ? `あと${Math.ceil(waitMs / 1000)}秒` : '送信';
+
+    if (over > 0) note(reasonText('too-long', { over }), 'bad');
+    else if (track?.stopped) note(reasonText('stopped'), 'wait');
+    else if (waitMs > 0) note(reasonText('cooldown', { waitMs }), 'ok');
+  }
+
+  /** クールダウン中は毎秒出し直す。無言で押せなくすると壊れていると思われる。 */
+  function tick() {
+    clearInterval(timer);
+    timer = setInterval(() => {
       refresh();
-      if (bus.cooldownRemaining() <= 0) { clearInterval(cooldownTimer); cooldownTimer = 0; }
+      if (bus.cooldownRemaining() <= 0) {
+        clearInterval(timer); timer = 0;
+        if (!track?.stopped) note('送るとスライドの上に流れます');
+      }
     }, 200);
   }
 
   async function submit() {
-    const value = text.value;
+    const value = el('text').value;
     if (value.trim().length === 0) return;
-    send.disabled = true;
+    el('send').disabled = true;
     try {
       await bus.post(value);
       // 送れたら即空にする。続けて打てることが弾幕の体験なので。
-      text.value = '';
-      say('送った', 'ok');
-      tickCooldown();
+      el('text').value = '';
+      note(reasonText('cooldown', { waitMs: COOLDOWN_MS }), 'ok');
+      tick();
     } catch (e) {
-      say(REASON[e.kind] ?? REASON.denied, e.kind === 'cooldown' ? 'wait' : 'bad');
-      if (e.kind === 'cooldown') tickCooldown();
+      const over = Math.max(0, value.trim().length - MAX_TEXT);
+      note(reasonText(e.kind, { over, waitMs: bus.cooldownRemaining() }),
+        e.kind === 'cooldown' || e.kind === 'stopped' ? 'wait' : 'bad');
+      if (e.kind === 'cooldown') tick();
     } finally {
       refresh();
-      text.focus();
+      el('text').focus();
     }
   }
 
-  text.addEventListener('input', refresh);
-  send.addEventListener('click', submit);
-  text.addEventListener('keydown', (e) => {
-    // スマホの改行は普通に使えるようにする。送信は Cmd/Ctrl + Enter
+  el('text').addEventListener('input', refresh);
+  el('send').addEventListener('click', submit);
+  el('text').addEventListener('keydown', (e) => {
+    // スマホの改行は潰さない。送信は Cmd/Ctrl + Enter。
     if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); submit(); }
   });
 
   refresh();
-  text.focus();
-  return { bus, submit, refresh };
+  el('text').focus();
+  return { bus, submit, refresh, get track() { return track; } };
 }

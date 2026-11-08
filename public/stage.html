@@ -1,134 +1,116 @@
 <!doctype html>
+<html lang="ja" class="dark">
 <meta charset="utf-8">
 <title>登壇する</title>
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="theme-color" content="#0b0b0f">
+<meta name="theme-color" content="#0b0d12">
+<link rel="stylesheet" href="./css/app.css">
 <style>
-  :root {
-    color-scheme: dark;
-    --bg:#0b0b0f; --surface:#15151d; --surface2:#1c1c26; --line:#2a2a38;
-    --ink:#e8e8ef; --muted:#8a8a99;
-    --accent:#6f8cff; --stop:#ff6b6b; --go:#5fd39a; --warn:#ffc46b;
+  body { min-height: 100vh; display: flex; flex-direction: column; }
+
+  /* 上バーは登壇中ずっと見える。状態と「止める」だけ。 */
+  .bar {
+    display: flex; align-items: center; gap: 1rem; flex-wrap: wrap;
+    padding: .9rem 1.25rem; background: var(--surface); border-bottom: 1px solid var(--line);
   }
-  * { box-sizing: border-box; }
-  html, body { margin:0; min-height:100%; background:var(--bg); color:var(--ink);
-    font:16px/1.6 -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Noto Sans JP", sans-serif; }
-  main { max-width:58rem; margin:0 auto; padding:1.75rem 1.25rem 5rem; display:grid; gap:1rem; }
+  .bar .who { min-width: 8rem; }
+  .bar .who .t { font-size: 1.25rem; font-weight: 700; line-height: 1.3; }
+  .bar .who .s { font-size: .8rem; color: var(--muted); }
+  .bar .spacer { flex: 1; }
+  .state { display: flex; align-items: center; gap: .55rem; padding: .45rem .9rem;
+           border-radius: 8px; background: var(--surface2); }
+  .state .dot { width: .6rem; height: .6rem; border-radius: 50%; background: var(--muted); flex: none; }
+  .state .t { font-weight: 700; font-size: .9rem; }
+  .state .s { font-size: .75rem; color: var(--muted); }
+  .state[data-kind="live"]    .dot { background: var(--good); box-shadow: 0 0 0 4px rgba(95,211,154,.16); }
+  .state[data-kind="stopped"] .dot { background: var(--warn); }
+  .state[data-kind="error"]   .dot { background: var(--bad); }
+  #stopBtn { padding: .9rem 2rem; font-size: 1rem; }
 
-  h1 { margin:0; font-size:.75rem; font-weight:600; letter-spacing:.09em;
-       text-transform:uppercase; color:var(--muted); }
-  section { background:var(--surface); border:1px solid var(--line); border-radius:.8rem; padding:1.05rem 1.2rem; }
-  section h2 { margin:0 0 .75rem; font-size:.95rem; font-weight:600; }
-  .row { display:flex; flex-wrap:wrap; gap:.6rem; align-items:center; }
-  .grow { flex:1 1 11rem; min-width:0; }
+  main { flex: 1; display: grid; gap: 1rem; grid-template-columns: 1fr; padding: 1.25rem;
+         max-width: 70rem; width: 100%; margin: 0 auto; align-content: start; }
+  @media (min-width: 60rem) { main { grid-template-columns: 24rem 1fr; } }
 
-  button, select, input {
-    padding:.65rem 1rem; border-radius:.55rem; font:inherit; font-weight:600;
-    background:var(--surface2); color:var(--ink); border:1px solid var(--line); cursor:pointer;
-  }
-  input { font-weight:400; cursor:text; width:100%; }
-  button:hover:not(:disabled) { background:#23232f; }
-  button:disabled { opacity:.4; cursor:default; }
-  button.primary { background:var(--accent); color:#0b0b12; border-color:transparent; }
-  button.stop { background:var(--stop); color:#1a0606; border-color:transparent; flex:1 1 100%; padding:.95rem; font-size:1.02rem; }
-  button.resume { background:var(--go); color:#06180f; border-color:transparent; flex:1 1 100%; padding:.95rem; }
+  .step { padding: 1rem 1.1rem; }
+  .step h2 { display: flex; align-items: center; gap: .6rem; font-size: 1rem; font-weight: 700; }
+  .step h2 .n { width: 1.5rem; height: 1.5rem; border-radius: 6px; display: grid; place-items: center;
+                font-size: .78rem; background: var(--surface2); color: var(--muted); border: 1px solid var(--line); }
+  .step[data-state="done"] h2 .n { background: var(--good); color: #06180f; border-color: transparent; }
+  .step[data-state="now"]  h2 .n { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
+  .step .ok { margin-left: auto; font-size: .78rem; color: var(--good); font-weight: 600; }
 
-  /* 手順。いまどこにいるか分かるようにする */
-  ol.steps { list-style:none; margin:0; padding:0; display:grid; gap:.55rem; counter-reset:s; }
-  ol.steps li {
-    display:grid; grid-template-columns:1.55rem 1fr; gap:.7rem; align-items:center;
-    padding:.6rem .7rem; border-radius:.55rem; border:1px solid transparent;
-  }
-  ol.steps li::before {
-    counter-increment:s; content:counter(s);
-    width:1.5rem; height:1.5rem; border-radius:.4rem; display:grid; place-items:center;
-    font-size:.78rem; background:var(--surface2); color:var(--muted); border:1px solid var(--line);
-  }
-  ol.steps li[data-state="done"]::before { background:var(--go); color:#06180f; content:"✓"; border-color:transparent; }
-  ol.steps li[data-state="now"] { border-color:var(--accent); background:rgba(111,140,255,.08); }
-  ol.steps li[data-state="now"]::before { background:var(--accent); color:#0b0b12; border-color:transparent; }
-  ol.steps .what { font-size:.93rem; }
-  ol.steps .hint { display:block; font-size:.78rem; color:var(--muted); font-weight:400; }
+  #openApp { margin-top: .9rem; }
+  .sub { display: flex; gap: 1rem; margin-top: .6rem; font-size: .82rem; }
 
-  #state { display:flex; align-items:center; gap:.55rem; font-size:.92rem; color:var(--muted); }
-  #dot { width:.6rem; height:.6rem; border-radius:50%; background:var(--muted); flex:none; }
-  #state[data-kind="live"]    #dot { background:var(--go); box-shadow:0 0 0 4px rgba(95,211,154,.18); }
-  #state[data-kind="stopped"] #dot { background:var(--warn); }
-  #state[data-kind="error"]   #dot { background:var(--stop); }
+  #nowTitle { font-weight: 700; margin-top: .7rem; }
+  #nowMeta { font-size: .82rem; color: var(--muted); }
 
-  /* 届いているコメント。登壇者が手元で見る */
-  #feed { display:grid; gap:.3rem; max-height:14rem; overflow-y:auto; margin:0; padding:0; list-style:none; }
-  #feed li { padding:.4rem .6rem; border-radius:.4rem; background:var(--surface2);
-             font-size:.9rem; word-break:break-word; }
-  #feed li.me { border-left:2px solid var(--accent); }
-  #feed:empty::after { content:"まだ届いていない"; color:var(--muted); font-size:.85rem; }
-  .count { font-family:ui-monospace, SFMono-Regular, Menlo, monospace; color:var(--muted); font-size:.8rem; }
-
-  .hint { margin:.5rem 0 0; font-size:.79rem; color:var(--muted); }
-  .hidden { display:none; }
-  code { font-family:ui-monospace, Menlo, monospace; background:var(--surface2);
-         padding:.1rem .35rem; border-radius:.25rem; font-size:.85em; }
+  /* コメント一覧。登壇者が手元で見る。 */
+  .feedcard { padding: 0; overflow: hidden; display: flex; flex-direction: column; }
+  .feedhead { display: flex; align-items: baseline; gap: .6rem;
+              padding: .85rem 1.1rem; border-bottom: 1px solid var(--line); }
+  .feedhead h2 { font-size: 1rem; font-weight: 700; }
+  .feedhead .n { margin-left: auto; font-size: .85rem; color: var(--muted);
+                 font-variant-numeric: tabular-nums; }
+  #feed { list-style: none; margin: 0; padding: 0; overflow-y: auto; max-height: 60vh; }
+  #feed li { display: flex; gap: 1rem; align-items: baseline;
+             padding: .7rem 1.1rem; border-bottom: 1px solid var(--line); }
+  #feed li:last-child { border-bottom: 0; }
+  #feed .at { flex: none; width: 4.5rem; font-size: .75rem; color: var(--muted);
+              font-variant-numeric: tabular-nums; }
+  #feed .tx { font-size: 1.02rem; word-break: break-word; }
+  #feedEmpty { padding: 2.5rem 1.1rem; text-align: center; color: var(--muted); font-size: .9rem; }
 </style>
 
+<div class="bar">
+  <div class="who">
+    <div class="t" id="trackName">—</div>
+    <div class="s" id="eventName">—</div>
+  </div>
+  <div class="state" id="state" data-kind="">
+    <span class="dot"></span>
+    <span><span class="t" id="stateText">読み込み中</span><br><span class="s" id="stateSub"></span></span>
+  </div>
+  <span class="spacer"></span>
+  <button id="stopBtn" class="btn danger">投稿を止める</button>
+  <button id="resumeBtn" class="btn hidden" style="padding:.9rem 2rem">投稿を再開する</button>
+</div>
+
 <main>
-  <h1>登壇する</h1>
-
-  <section>
-    <div id="state" data-kind=""><span id="dot"></span><span id="stateText">読み込み中</span></div>
-  </section>
-
-  <section id="setupBox">
-    <h2>はじめる</h2>
-    <ol class="steps">
-      <li id="s1"><span class="what">スライドを取り込む
-        <span class="hint">先にスライドショーを全画面にしてから、「ウィンドウ」か「画面全体」で選ぶ</span></span></li>
-      <li id="s2"><span class="what">プロジェクタに出す
-        <span class="hint">向こうの画面に弾幕の窓が開く</span></span></li>
-      <li id="s3"><span class="what">開いた窓を1回クリックして全画面にする
-        <span class="hint">これ以降その窓は触らなくていい</span></span></li>
-      <li id="s4"><span class="what">スライドに戻って、いつも通り発表する
-        <span class="hint">操作はこの画面とスライドだけ</span></span></li>
-    </ol>
-    <div class="row" style="margin-top:.9rem">
-      <button id="pick" class="primary">スライドを取り込む</button>
-      <select id="screen" class="hidden"></select>
-      <button id="project" disabled>プロジェクタに出す</button>
-      <button id="closeProj" class="hidden">弾幕の窓を閉じる</button>
-    </div>
-    <p class="hint" id="setupHint"></p>
-  </section>
-
-  <section id="stopBox">
-    <h2>投稿の受付</h2>
-    <div class="row">
-      <button id="stop" class="stop">投稿を止める</button>
-      <button id="resume" class="resume hidden">投稿を再開する</button>
-    </div>
-    <p class="hint">荒らされたときの最終手段。押した瞬間から新しい投稿は拒否される。</p>
-  </section>
-
-  <section>
-    <h2>届いているコメント <span class="count" id="count">0</span></h2>
-    <ul id="feed"></ul>
-    <div class="row" style="margin-top:.75rem">
-      <input id="testText" placeholder="テスト用のコメント" maxlength="60" value="テストです">
-      <button id="testSend">自分で流してみる</button>
-    </div>
-    <p class="hint">登壇前のリハーサルに使う。ふつうの投稿と同じように流れる。</p>
-  </section>
-
-  <section>
-    <h2>観客に配る</h2>
-    <div class="row">
-      <div id="qrSlot"></div>
-      <div class="grow">
-        <div id="postUrl" class="count" style="word-break:break-all"></div>
-        <div class="row" style="margin-top:.6rem">
-          <button id="copy">URLをコピー</button>
-          <button id="openPost">投稿ページを開く</button>
-        </div>
+  <div class="stack">
+    <section class="card step" id="step1" data-state="now">
+      <h2><span class="n">1</span> スライドに重ねる <span class="ok hidden" id="appOk">✓ アプリ接続中</span></h2>
+      <a id="openApp" class="btn primary block lg" href="#">アプリで開く</a>
+      <div class="sub">
+        <a id="getApp" href="./app.html">アプリを入手</a>
+        <a id="browserWay" href="#">ブラウザ版で続ける</a>
       </div>
+    </section>
+
+    <section class="card step" id="step2" data-state="">
+      <h2><span class="n">2</span> 演題を入れて開始</h2>
+      <div id="beforeStart" class="stack" style="margin-top:.7rem">
+        <label class="field"><span>演題</span>
+          <input id="title" maxlength="60" placeholder="はじめてのLT" autocomplete="off"></label>
+        <label class="field"><span>登壇者</span>
+          <input id="speaker" maxlength="40" placeholder="名前" autocomplete="off"></label>
+        <button id="startBtn" class="btn primary block">この内容で開始</button>
+      </div>
+      <div id="afterStart" class="hidden">
+        <div id="nowTitle">—</div>
+        <div id="nowMeta">—</div>
+        <button id="endBtn" class="btn" style="margin-top:.8rem">登壇を終える</button>
+      </div>
+    </section>
+  </div>
+
+  <section class="card feedcard">
+    <div class="feedhead">
+      <h2>届いているコメント</h2>
+      <span class="n"><span id="count">0</span> 件</span>
     </div>
+    <ul id="feed"></ul>
+    <div id="feedEmpty">まだ届いていません</div>
   </section>
 </main>
 
@@ -139,7 +121,11 @@
   addEventListener('error', (e) => show(e.message ?? e.error));
   addEventListener('unhandledrejection', (e) => show(e.reason?.message ?? e.reason));
   try {
+    const q = new URLSearchParams(location.search);
     const { createStage } = await import('./lib/stage.mjs');
-    window.__stage = await createStage({ trackId: new URLSearchParams(location.search).get('track') });
+    window.__stage = await createStage({
+      eventId: q.get('e'), trackId: q.get('t'), code: q.get('k'),
+    });
   } catch (e) { show(e?.message ?? e); }
 </script>
+</html>

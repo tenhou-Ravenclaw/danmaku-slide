@@ -1,0 +1,315 @@
+// 運営者の画面。イベントを作り、トラックを並べ、登壇者にリンクを配る。
+//
+// 事前に落ち着いて使う画面なので、一覧性と編集のしやすさを優先する。
+// 弾幕そのものやコメントの中身は出さない。運営が見たいのは「配れているか」だけ。
+import { connect, start } from './app.mjs';
+import { createEventBus, createBus } from './bus.mjs';
+import { QRCode } from '../vendor/lib.js';
+import {
+  newEventId, newTrackId, newHandoffCode, slugFromName,
+  stageUrlFor, postUrlFor, eventUrlFor, shortUrl, formatDate, withEnv,
+} from './ids.mjs';
+
+export async function createOrganizer({ eventId, random = () => Math.random() } = {}) {
+  const el = (id) => document.getElementById(id);
+  const msg = el('msg');
+  const say = (text, kind = '') => { msg.textContent = text; msg.dataset.kind = kind; };
+  const fail = (text) => say(text, 'bad');
+
+  const { uid, db, sdk } = await start();
+  const events = createEventBus(sdk, { db, uid });
+  el('who').textContent = `匿名 ${uid.slice(0, 6)}`;
+
+  return eventId ? detail(eventId) : list();
+
+  // --- イベント一覧 -----------------------------------------------------
+  function list() {
+    el('listView').classList.remove('hidden');
+
+    const unwatch = events.watchMyEvents(async (rows) => {
+      // トラック数は一覧には入っていないので、イベントごとに数える
+      const withCounts = await Promise.all(rows.map(async (ev) => {
+        try {
+          const snap = await events.getTracksOnce(ev.id);
+          const tracks = snap.docs.map((d) => d.data());
+          return { ...ev, trackCount: tracks.length,
+            openCount: tracks.filter((t) => t.stopped !== true).length };
+        } catch (e) {
+          // 握りつぶすと「—」が出るだけで原因が見えない
+          fail(`トラック数を数えられない: ${e.code ?? e.message}`);
+          return { ...ev, trackCount: null, openCount: 0 };
+        }
+      }));
+      paintList(withCounts);
+    }, (e) => fail(`イベントを読めない: ${e.code ?? e.message}`));
+
+    el('createEvent').addEventListener('click', async () => {
+      const name = el('newEventName').value.trim();
+      if (!name) { fail('イベント名を入れる'); el('newEventName').focus(); return; }
+      el('createEvent').disabled = true;
+      try {
+        const id = newEventId(random);
+        await events.createEvent(id, { name, heldOn: el('newEventDate').value || '' });
+        await events.setEventHandoff(id, newHandoffCode(random));
+        location.href = withEnv(`./organizer.html?e=${encodeURIComponent(id)}`);
+      } catch (e) {
+        fail(`作れない: ${e.code ?? e.message}`);
+        el('createEvent').disabled = false;
+      }
+    });
+    el('newEventName').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') el('createEvent').click();
+    });
+    el('newEventName').focus();
+
+    return { kind: 'list', stop: () => unwatch?.() };
+  }
+
+  /** 開催日で「これから」と「終わった」に分ける。日付が無いものは「これから」に置く。 */
+  function splitByDate(rows, today = new Date().toISOString().slice(0, 10)) {
+    const upcoming = [], past = [];
+    for (const ev of rows) (ev.heldOn && ev.heldOn < today ? past : upcoming).push(ev);
+    upcoming.sort((a, b) => String(a.heldOn ?? '9999').localeCompare(String(b.heldOn ?? '9999')));
+    past.sort((a, b) => String(b.heldOn ?? '').localeCompare(String(a.heldOn ?? '')));
+    return { upcoming, past };
+  }
+
+  function paintList(rows) {
+    const { upcoming, past } = splitByDate(rows);
+
+    const up = el('upcoming');
+    up.replaceChildren();
+    for (const ev of upcoming) {
+      const tr = document.createElement('tr');
+      tr.className = 'clickable';
+      tr.tabIndex = 0;
+      const go = () => { location.href = withEnv(`./organizer.html?e=${encodeURIComponent(ev.id)}`); };
+      tr.addEventListener('click', go);
+      tr.addEventListener('keydown', (e) => { if (e.key === 'Enter') go(); });
+
+      const name = cell(tr); name.style.fontWeight = '600'; name.textContent = ev.name;
+      cell(tr).textContent = formatDate(ev.heldOn) || '—';
+      cell(tr).textContent = ev.trackCount == null ? '—' : `${ev.trackCount} トラック`;
+
+      const st = cell(tr);
+      const pill = document.createElement('span');
+      if (!ev.trackCount) { pill.className = 'pill mute'; pill.textContent = '準備中'; }
+      else if (ev.openCount === 0) { pill.className = 'pill warn'; pill.textContent = '全停止中'; }
+      else { pill.className = 'pill good'; pill.textContent = `受付中 ${ev.openCount} / ${ev.trackCount}`; }
+      st.append(pill);
+
+      const chev = cell(tr); chev.className = 'chev'; chev.textContent = '›';
+      up.append(tr);
+    }
+    el('noUpcoming').classList.toggle('hidden', upcoming.length > 0);
+    up.closest('.card').classList.toggle('hidden', upcoming.length === 0);
+
+    const pastBody = el('past');
+    pastBody.replaceChildren();
+    for (const ev of past) {
+      const tr = document.createElement('tr');
+      tr.className = 'clickable done';
+      tr.addEventListener('click', () => {
+        location.href = withEnv(`./organizer.html?e=${encodeURIComponent(ev.id)}`);
+      });
+      cell(tr).textContent = ev.name;
+      const right = cell(tr);
+      right.style.textAlign = 'right';
+      right.textContent = `${formatDate(ev.heldOn)} · ${ev.trackCount} トラック`;
+      pastBody.append(tr);
+    }
+    el('noPast').classList.toggle('hidden', past.length > 0);
+    pastBody.closest('.card').classList.toggle('hidden', past.length === 0);
+  }
+
+  // --- イベント詳細 -----------------------------------------------------
+  async function detail(id) {
+    el('detailView').classList.remove('hidden');
+
+    let tracks = [];
+    let painted = false;
+
+    events.watchEvent(id, (ev) => {
+      if (!ev) { fail(`イベントが見つからない: ${id}`); return; }
+      el('evName').textContent = ev.name;
+      el('evMeta').textContent =
+        [formatDate(ev.heldOn), `${tracks.length} トラック`].filter(Boolean).join(' · ');
+      if (!painted) { painted = true; paintEventQr(id); }
+    }, (e) => fail(`読めない: ${e.code ?? e.message}`));
+
+    events.watchTracks(id, (rows) => { tracks = rows; paintTracks(id, rows); },
+      (e) => fail(`トラックを読めない: ${e.code ?? e.message}`));
+
+    el('addTrack').addEventListener('click', () => addTrack(id, tracks));
+    el('newTrackName').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') addTrack(id, tracks);
+    });
+
+    el('stopAll').addEventListener('click', async () => {
+      if (!tracks.length) { fail('トラックがありません'); return; }
+      el('stopAll').disabled = true;
+      try {
+        await Promise.all(tracks.map((t) =>
+          createBus(sdk, { db, eventId: id, trackId: t.id, uid }).stop()));
+        say('全トラックの投稿を止めました', 'ok');
+      } catch (e) {
+        fail(`止められない: ${e.code ?? e.message}`);
+      } finally { el('stopAll').disabled = false; }
+    });
+
+    el('copyEvUrl').addEventListener('click', () => copy(eventUrlFor(id)));
+    el('printEvQr').addEventListener('click', () =>
+      printQr(el('evQr').innerHTML, el('evName').textContent, eventUrlFor(id),
+        'スマホで読み取ると、トラックを選んでコメントを送れます'));
+
+    return { kind: 'detail', eventId: id, get tracks() { return tracks; } };
+  }
+
+  async function paintEventQr(id) {
+    const url = eventUrlFor(id);
+    el('evUrl').textContent = `/e/${id}`;
+    el('evQr').innerHTML = await QRCode.toString(url,
+      { type: 'svg', errorCorrectionLevel: 'M', margin: 1, width: 168 });
+  }
+
+  function paintTracks(eventId, rows) {
+    const body = el('tracks');
+    body.replaceChildren();
+    for (const t of rows) {
+      const tr = document.createElement('tr');
+
+      const name = cell(tr);
+      name.style.fontWeight = '700';
+      name.textContent = t.name;
+
+      const title = cell(tr);
+      title.className = 'title';
+      const line1 = document.createElement('div');
+      line1.className = 't';
+      line1.textContent = t.title || '次の登壇を待っています';
+      const line2 = document.createElement('div');
+      line2.className = 's';
+      line2.textContent = t.speaker || '—';
+      title.append(line1, line2);
+
+      const st = cell(tr);
+      const pill = document.createElement('span');
+      if (t.stopped) { pill.className = 'pill bad'; pill.textContent = '停止中'; }
+      else if (!t.title) { pill.className = 'pill mute'; pill.textContent = '開始前'; }
+      else { pill.className = 'pill good'; pill.textContent = '受付中'; }
+      st.append(pill);
+
+      const count = cell(tr);
+      count.className = 'count';
+      count.textContent = '—';
+      countComments(eventId, t, count);
+
+      const link = cell(tr);
+      link.className = 'link mono muted';
+      link.textContent = shortUrl(stageUrlFor(eventId, t.id, null));
+
+      const actions = cell(tr);
+      actions.className = 'link';
+      const row = document.createElement('div');
+      row.className = 'row tight';
+      const copyBtn = button('リンクをコピー', 'btn', async () => {
+        const code = newHandoffCode(random);
+        try {
+          await events.setTrackHandoff(eventId, t.id, code);
+          await copy(stageUrlFor(eventId, t.id, code));
+        } catch (e) { fail(`リンクを作れない: ${e.code ?? e.message}`); }
+      });
+      const qrBtn = button('QRを印刷', 'btn', async () => {
+        const svg = await QRCode.toString(postUrlFor(eventId, t.id),
+          { type: 'svg', errorCorrectionLevel: 'M', margin: 2, width: 360 });
+        printQr(svg, t.name, postUrlFor(eventId, t.id),
+          'スマホで読み取るとコメントを送れます');
+      });
+      row.append(copyBtn, qrBtn);
+      actions.append(row);
+
+      body.append(tr);
+    }
+  }
+
+  /**
+   * いま届いている件数。
+   * 一覧のために全件読むのは重いので、セッション開始以降の上限50件だけ数える。
+   */
+  async function countComments(eventId, track, cellEl) {
+    if (!track.sessionStartedAt) { cellEl.textContent = '0'; return; }
+    try {
+      const { collection, query, where, orderBy, limit, getDocs } = sdk;
+      const snap = await getDocs(query(
+        collection(db, 'events', eventId, 'tracks', track.id, 'comments'),
+        where('createdAt', '>=', track.sessionStartedAt),
+        orderBy('createdAt', 'desc'), limit(50)));
+      cellEl.textContent = snap.size >= 50 ? '50+' : String(snap.size);
+    } catch (e) {
+      cellEl.textContent = '—';
+      fail(`件数を数えられない: ${e.code ?? e.message}`);
+    }
+  }
+
+  async function addTrack(eventId, tracks) {
+    const name = el('newTrackName').value.trim();
+    if (!name) { fail('トラック名を入れる'); el('newTrackName').focus(); return; }
+    // Track A → a。読める ID のほうが運営が扱いやすい。衝突したら乱数に落とす。
+    const used = new Set(tracks.map((t) => t.id));
+    let id = slugFromName(name);
+    if (!id || used.has(id)) id = newTrackId(random);
+    el('addTrack').disabled = true;
+    // 押した瞬間に空にする。await の後だと、続けて打ち始めた文字まで消える。
+    el('newTrackName').value = '';
+    try {
+      await events.createTrack(eventId, id, { name });
+      say(`${name} を足しました`, 'ok');
+    } catch (e) {
+      el('newTrackName').value = name;   // 失敗したら戻す
+      fail(`足せない: ${e.code ?? e.message}`);
+    } finally {
+      el('addTrack').disabled = false;
+      el('newTrackName').focus();
+    }
+  }
+
+  // --- 小物 -------------------------------------------------------------
+  function cell(tr) { const td = document.createElement('td'); tr.append(td); return td; }
+  function button(text, cls, onClick) {
+    const b = document.createElement('button');
+    b.className = cls; b.textContent = text;
+    b.addEventListener('click', onClick);
+    return b;
+  }
+  async function copy(text) {
+    try { await navigator.clipboard.writeText(text); say('コピーしました', 'ok'); }
+    catch { fail('コピーできませんでした'); }
+  }
+}
+
+/**
+ * QR だけの印刷用ウィンドウ。机に置ける紙にするのが目的なので、
+ * スクリーンに QR を出して登壇を邪魔する必要がなくなる。
+ */
+function printQr(svg, heading, url, note) {
+  const w = window.open('', '_blank');
+  if (!w) return;
+  w.document.write(`<!doctype html><meta charset="utf-8"><title>${esc(heading)} のQR</title>
+<style>
+  @page { margin: 12mm; }
+  body { margin:0; font:16px/1.6 -apple-system,"Hiragino Sans","Noto Sans JP",sans-serif;
+         display:grid; place-items:center; min-height:100vh; text-align:center; color:#111; }
+  h1 { font-size:1.7rem; margin:0 0 .2rem; }
+  p { margin:0 0 1.2rem; color:#555; }
+  svg { width:76mm; height:76mm; }
+  .url { margin-top:1rem; font:500 .85rem ui-monospace,Menlo,monospace; color:#333; word-break:break-all; }
+</style>
+<body><div><h1>${esc(heading)}</h1><p>${esc(note)}</p>${svg}
+<div class="url">${esc(url)}</div></div></body>`);
+  w.document.close();
+  w.focus();
+  w.print();
+}
+
+const esc = (s) => String(s).replace(/[&<>"']/g,
+  (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));

@@ -7,7 +7,7 @@ import { connect } from './app.mjs';
 import * as capture from './capture.mjs';
 import * as screens from './screens.mjs';
 
-export function createOverlay({ canvas, hud, video = null, trackId, capturing = false }) {
+export function createOverlay({ canvas, hud, video = null, eventId, trackId }) {
   const flow = new DanmakuFlow();
   const renderer = new Renderer(canvas);
   const state = { status: '接続中', track: null, error: null, dropped: 0 };
@@ -115,9 +115,9 @@ export function createOverlay({ canvas, hud, video = null, trackId, capturing = 
   }
 
   async function start() {
-    if (!trackId) { fail('トラックが指定されていない（?track=... が必要）'); return; }
+    if (!eventId || !trackId) { fail('リンクが正しくない（運営からのリンクを開く）'); return; }
     try {
-      bus = await connect(trackId);
+      bus = await connect(eventId, trackId);
     } catch (e) {
       fail(`接続できない: ${e.code ?? e.message}`);
       return;
@@ -127,6 +127,8 @@ export function createOverlay({ canvas, hud, video = null, trackId, capturing = 
 
     unwatchTrack = bus.watchTrack((track) => {
       if (!track) { fail(`トラックが無い: ${trackId}`); return; }
+      // 登壇者の画面に「重なった」と知らせる。手順1を完了にするため。
+      try { window.opener?.postMessage({ type: 'danmaku:overlay-ready' }, location.origin); } catch {}
       state.track = track;
       state.error = null;
       state.status = '接続';

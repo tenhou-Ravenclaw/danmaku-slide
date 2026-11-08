@@ -14,47 +14,77 @@ Module._resolveFilename = function (request, ...rest) {
 const { parseTrackId, overlayUrl, overlayWindowOptions, trackFromArgv } = require_('../../desktop/main.cjs');
 Module._resolveFilename = origResolve;
 
-test('トラックIDをそのまま受け取る', () => {
-  assert.equal(parseTrackId('abc23xyz'), 'abc23xyz');
+test('運営のリンクから2つのIDを取り出す', () => {
+  assert.deepEqual(
+    parseTrackId('https://df-hackathon-2026.web.app/stage.html?e=ev123&t=a'),
+    { eventId: 'ev123', trackId: 'a', code: null });
 });
 
-test('投稿URLを貼られてもトラックIDを取り出す', () => {
-  assert.equal(
-    parseTrackId('https://df-hackathon-2026.web.app/post.html?track=abc23xyz'),
-    'abc23xyz');
+test('合言葉つきのリンクも受ける', () => {
+  assert.deepEqual(
+    parseTrackId('https://x.test/stage.html?e=ev123&t=a&k=CODE2345'),
+    { eventId: 'ev123', trackId: 'a', code: 'CODE2345' });
 });
 
-test('弾幕ページのURLからも取り出す', () => {
-  assert.equal(
-    parseTrackId('https://df-hackathon-2026.web.app/overlay.html?track=zz99&hud=0'),
-    'zz99');
+test('danmaku:// のリンクから取り出す', () => {
+  assert.deepEqual(
+    parseTrackId('danmaku://track?e=ev123&t=a&k=CODE2345'),
+    { eventId: 'ev123', trackId: 'a', code: 'CODE2345' });
+});
+
+test('投稿URLからも取り出す', () => {
+  assert.deepEqual(
+    parseTrackId('https://x.test/post.html?e=ev9&t=b'),
+    { eventId: 'ev9', trackId: 'b', code: null });
+});
+
+test('手で2つ並べて貼られても受ける', () => {
+  assert.deepEqual(parseTrackId('ev123 a'), { eventId: 'ev123', trackId: 'a', code: null });
+  assert.deepEqual(parseTrackId('ev123/a'), { eventId: 'ev123', trackId: 'a', code: null });
 });
 
 test('前後の空白を落とす', () => {
-  assert.equal(parseTrackId('  abc23xyz \n'), 'abc23xyz');
+  assert.deepEqual(parseTrackId('  ev123 a \n'), { eventId: 'ev123', trackId: 'a', code: null });
 });
 
 test('空なら null', () => {
   for (const v of ['', '   ', null, undefined]) assert.equal(parseTrackId(v), null);
 });
 
-test('URLでもIDでもないものは通さない', () => {
+test('片方しか無いリンクは通さない', () => {
+  assert.equal(parseTrackId('https://x.test/stage.html?e=ev123'), null);
+  assert.equal(parseTrackId('https://x.test/stage.html?t=a'), null);
+  assert.equal(parseTrackId('https://x.test/stage.html'), null);
+});
+
+test('危ない値は通さない', () => {
   // そのまま URL に差し込むと他のクエリを足せてしまう
-  for (const v of ['a b', 'abc?x=1', 'a/b', '<script>', 'a&b=c', 'あいう']) {
-    assert.equal(parseTrackId(v), null, `通ってしまった: ${v}`);
+  for (const v of ['ev1 a b', 'https://x.test/?e=a/b&t=c', 'https://x.test/?e=<script>&t=a',
+                   'https://x.test/?e=a&b=c&t=x y', 'danmaku://']) {
+    const r = parseTrackId(v);
+    assert.ok(r === null || (/^[A-Za-z0-9_-]+$/.test(r.eventId) && /^[A-Za-z0-9_-]+$/.test(r.trackId)),
+      `通ってしまった: ${v} -> ${JSON.stringify(r)}`);
   }
 });
 
-test('track を持たないURLは通さない', () => {
-  assert.equal(parseTrackId('https://df-hackathon-2026.web.app/post.html'), null);
-});
-
 test('弾幕ページのURLは透過とHUD非表示を付ける', () => {
-  const u = new URL(overlayUrl('abc23xyz'));
+  const u = new URL(overlayUrl({ eventId: 'ev123', trackId: 'a' }));
   assert.equal(u.pathname, '/overlay.html');
-  assert.equal(u.searchParams.get('track'), 'abc23xyz');
+  assert.equal(u.searchParams.get('e'), 'ev123');
+  assert.equal(u.searchParams.get('t'), 'a');
   assert.equal(u.searchParams.get('transparent'), '1');
   assert.equal(u.searchParams.get('hud'), '0');
+});
+
+test('起動時の引数から danmaku:// を拾う', () => {
+  assert.deepEqual(trackFromArgv(['/path/app', 'danmaku://track?e=ev1&t=z']),
+    { eventId: 'ev1', trackId: 'z', code: null });
+});
+
+test('引数に danmaku:// が無ければ null', () => {
+  assert.equal(trackFromArgv(['/path/app', '--foo']), null);
+  assert.equal(trackFromArgv([]), null);
+  assert.equal(trackFromArgv(undefined), null);
 });
 
 test('画面の端まで覆えるようにしてある', () => {
@@ -106,37 +136,4 @@ test('渡した位置と大きさをそのまま使う', () => {
   assert.equal(o.y, 0);
   assert.equal(o.width, 2560);
   assert.equal(o.height, 1440);
-});
-
-// --- 運営のリンクから起動されたとき ---------------------------------------
-test('danmaku://track/xxx からIDを取り出す', () => {
-  assert.equal(parseTrackId('danmaku://track/abc23xyz'), 'abc23xyz');
-});
-
-test('danmaku://?track=xxx からIDを取り出す', () => {
-  assert.equal(parseTrackId('danmaku://?track=abc23xyz'), 'abc23xyz');
-});
-
-test('danmaku://xxx（素の形）も受ける', () => {
-  assert.equal(parseTrackId('danmaku://abc23xyz'), 'abc23xyz');
-});
-
-test('danmaku:// に変なものが来ても通さない', () => {
-  // リンクは外から来るので、そのまま URL に差し込ませない
-  for (const v of ['danmaku://track/a b', 'danmaku://track/a%2Fb', 'danmaku://?track=a&b=c&track=x/y',
-                   'danmaku://track/<script>', 'danmaku://']) {
-    const r = parseTrackId(v);
-    assert.ok(r === null || /^[A-Za-z0-9_-]+$/.test(r), `通ってしまった: ${v} -> ${r}`);
-  }
-});
-
-test('起動時の引数から danmaku:// を拾う', () => {
-  assert.equal(trackFromArgv(['/path/app', 'danmaku://track/zzz99']), 'zzz99');
-  assert.equal(trackFromArgv(['/path/app', '--foo', 'danmaku://?track=q7']), 'q7');
-});
-
-test('引数に danmaku:// が無ければ null', () => {
-  assert.equal(trackFromArgv(['/path/app', '--foo']), null);
-  assert.equal(trackFromArgv([]), null);
-  assert.equal(trackFromArgv(undefined), null);
 });

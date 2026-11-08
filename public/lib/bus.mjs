@@ -1,7 +1,7 @@
 // Firestore との境界。描画も DOM も持たない。
 //
 // SDK を import せず引数で受け取る。ブラウザは同一オリジンに束ねた
-// public/vendor/firebase.js を渡し、テストは npm の firebase/firestore を渡す。
+// public/vendor/lib.js を渡し、テストは npm の firebase/firestore を渡す。
 // こうしないと、ブラウザ向けバンドルを Node から読むことになってテストが書けない。
 
 /** Rules 側と同じ上限。UI でも同じ値を使う。 */
@@ -21,14 +21,81 @@ export class PostError extends Error {
   }
 }
 
-export function createBus(sdk, { db, trackId, uid, now = () => Date.now() }) {
+/** イベント単位の操作。運営者の画面が使う。 */
+export function createEventBus(sdk, { db, uid }) {
+  const {
+    collection, doc, query, where, orderBy, limit,
+    onSnapshot, getDoc, getDocs, setDoc, updateDoc, deleteDoc, serverTimestamp,
+  } = sdk;
+
+  return {
+    /** 自分が作ったイベントを新しい順に購読する。 */
+    watchMyEvents(onEvents, onError) {
+      const q = query(collection(db, 'events'),
+        where('ownerUid', '==', uid), orderBy('createdAt', 'desc'), limit(PAGE));
+      return onSnapshot(q, (snap) => {
+        onEvents(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+      }, onError);
+    },
+
+    createEvent(eventId, { name, heldOn = '' }) {
+      return setDoc(doc(db, 'events', eventId), {
+        name, heldOn, ownerUid: uid, createdAt: serverTimestamp(),
+      });
+    },
+
+    watchEvent(eventId, onEvent, onError) {
+      return onSnapshot(doc(db, 'events', eventId), (snap) => {
+        onEvent(snap.exists() ? { id: snap.id, ...snap.data() } : null);
+      }, onError);
+    },
+
+    renameEvent(eventId, { name, heldOn }) {
+      return updateDoc(doc(db, 'events', eventId), { name, heldOn });
+    },
+
+    /** トラックを名前順に購読する。運営の表はこの順で並ぶ。 */
+    watchTracks(eventId, onTracks, onError) {
+      const q = query(collection(db, 'events', eventId, 'tracks'), orderBy('name'), limit(PAGE));
+      return onSnapshot(q, (snap) => {
+        onTracks(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+      }, onError);
+    },
+
+    getTracksOnce(eventId) {
+      return getDocs(query(collection(db, 'events', eventId, 'tracks'), orderBy('name'), limit(PAGE)));
+    },
+
+    /** トラックを足す。作れるのはイベントの owner だけ（Rules で縛っている）。 */
+    createTrack(eventId, trackId, { name }) {
+      return setDoc(doc(db, 'events', eventId, 'tracks', trackId), {
+        name, title: '', speaker: '', stopped: false,
+        sessionStartedAt: serverTimestamp(), createdAt: serverTimestamp(),
+      });
+    },
+
+    /** 登壇者に渡すリンクの合言葉。置いた本人も読めない。 */
+    setTrackHandoff(eventId, trackId, code) {
+      return setDoc(doc(db, 'events', eventId, 'tracks', trackId, 'private', 'handoff'), { code });
+    },
+
+    setEventHandoff(eventId, code) {
+      return setDoc(doc(db, 'events', eventId, 'private', 'handoff'), { code });
+    },
+
+    getEvent(eventId) { return getDoc(doc(db, 'events', eventId)); },
+  };
+}
+
+/** トラック単位の操作。登壇者・観客・弾幕ページが使う。 */
+export function createBus(sdk, { db, eventId, trackId, uid, now = () => Date.now() }) {
   const {
     collection, doc, query, where, orderBy, limit,
     onSnapshot, getDoc, setDoc, updateDoc, serverTimestamp, writeBatch,
   } = sdk;
 
-  const trackRef = () => doc(db, 'tracks', trackId);
-  const commentsRef = () => collection(db, 'tracks', trackId, 'comments');
+  const trackRef = () => doc(db, 'events', eventId, 'tracks', trackId);
+  const commentsRef = () => collection(db, 'events', eventId, 'tracks', trackId, 'comments');
 
   // Firestore はクールダウンも停止も permission-denied で返すので、
   // サーバの返事だけでは UI が理由を出せない。手元でも持っておく。
@@ -36,7 +103,7 @@ export function createBus(sdk, { db, trackId, uid, now = () => Date.now() }) {
   let stopped = false;
 
   return {
-    trackId,
+    eventId, trackId,
 
     /** トラックの状態を購読する。stopped と sessionStartedAt の変化を拾う。 */
     watchTrack(onTrack, onError) {
@@ -45,12 +112,12 @@ export function createBus(sdk, { db, trackId, uid, now = () => Date.now() }) {
         const d = snap.data();
         stopped = d.stopped === true;
         onTrack({
+          id: snap.id,
           name: d.name,
           title: d.title ?? '',
           speaker: d.speaker ?? '',
-          stopped: d.stopped === true,
+          stopped,
           sessionStartedAt: d.sessionStartedAt ?? null,
-          ownerUid: d.ownerUid,
         });
       }, onError);
     },
@@ -104,7 +171,8 @@ export function createBus(sdk, { db, trackId, uid, now = () => Date.now() }) {
 
       const b = writeBatch(db);
       b.set(doc(commentsRef()), { text: t, createdAt: serverTimestamp() });
-      b.set(doc(db, 'tracks', trackId, 'posters', uid), { lastPostAt: serverTimestamp() });
+      b.set(doc(db, 'events', eventId, 'tracks', trackId, 'posters', uid),
+        { lastPostAt: serverTimestamp() });
       try {
         await b.commit();
         lastPostAt = now();
@@ -121,18 +189,7 @@ export function createBus(sdk, { db, trackId, uid, now = () => Date.now() }) {
 
     get isStopped() { return stopped; },
 
-    // --- 登壇者・スタッフの操作 -----------------------------------------
-
-    /** トラックを作る。作った人が ownerUid になる。 */
-    async createTrack({ name, title = '', speaker = '' }) {
-      await setDoc(trackRef(), {
-        name, title, speaker,
-        stopped: false,
-        sessionStartedAt: serverTimestamp(),
-        ownerUid: uid,
-        createdAt: serverTimestamp(),
-      });
-    },
+    // --- 登壇者の操作 ---------------------------------------------------
 
     /** 登壇を開始する。trackId は変えないので QR を貼り替えなくていい。 */
     startSession({ title = '', speaker = '' } = {}) {
@@ -141,18 +198,18 @@ export function createBus(sdk, { db, trackId, uid, now = () => Date.now() }) {
       });
     },
 
+    /** 登壇を終える。次の「開始」まで投稿は拒否される。 */
+    endSession() {
+      return updateDoc(trackRef(), { stopped: true, title: '', speaker: '' });
+    },
+
     /** 荒らしへの最終手段。これ以降の投稿は Rules が拒否する。 */
     stop()   { return updateDoc(trackRef(), { stopped: true }); },
     resume() { return updateDoc(trackRef(), { stopped: false }); },
 
-    /** 引き継ぎコードを置く。置いた本人も読めない。 */
-    setHandoffCode(code) {
-      return setDoc(doc(db, 'tracks', trackId, 'private', 'handoff'), { code });
-    },
-
-    /** 引き継ぎコードを示して運用者になる。 */
-    claimOperator(code) {
-      return setDoc(doc(db, 'tracks', trackId, 'operators', uid), { code });
+    /** 渡されたリンクの合言葉を示して、このトラックの登壇者になる。 */
+    claim(code) {
+      return setDoc(doc(db, 'events', eventId, 'tracks', trackId, 'operators', uid), { code });
     },
 
     getTrack() { return getDoc(trackRef()); },

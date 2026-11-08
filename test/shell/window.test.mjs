@@ -45,7 +45,7 @@ test('画面の一覧が出る', async () => {
 });
 
 test('不正なトラックIDは弾いて理由を出す', async () => {
-  await setup.fill('#track', 'a b c');
+  await setup.fill('#track', 'a b c d');
   await setup.click('#go');
   await setup.waitForFunction(
     () => document.getElementById('msg').dataset.kind === 'bad', { timeout: 5000 });
@@ -55,7 +55,7 @@ test('不正なトラックIDは弾いて理由を出す', async () => {
 });
 
 test('重ねるウィンドウが透過・枠なし・最前面で作られる', async () => {
-  await setup.fill('#track', 'testtrak');
+  await setup.fill('#track', 'https://x.test/stage.html?e=ev123&t=testtrak');
   await setup.click('#go');
   await setup.waitForFunction(
     () => document.body.dataset.running === '1', { timeout: 10000 });

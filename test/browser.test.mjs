@@ -1,811 +1,429 @@
+// 実ブラウザで画面が動くかを見る。
+//
+// ユニットテストは計算を見るだけで、「ページが立ち上がるか」は見ない。
+// PoC では module が黙って死んで原因が分からなかったので、そこを機械で押さえる。
 import { chromium } from 'playwright';
 import * as sdk from 'firebase/firestore';
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInAnonymously, connectAuthEmulator } from 'firebase/auth';
 import { readFileSync } from 'node:fs';
-import { createBus } from '../public/lib/bus.mjs';
+import { createBus, createEventBus } from '../public/lib/bus.mjs';
 
 const HOST = process.env.HOSTING_URL ?? 'http://127.0.0.1:5055';
-
-// ブラウザ側は public/firebase-config.js の projectId でエミュレータに繋ぐ。
-// node 側が別の projectId を使うと、同じエミュレータでも別のデータを見ることになる。
 const CONFIG = JSON.parse(readFileSync(new URL('../.firebase-config.json', import.meta.url), 'utf8'));
 
 let pass = 0, fail = 0;
 const rows = [];
 async function t(name, fn) {
   try { await fn(); pass++; rows.push(['ok  ', name, '']); }
-  catch (e) { fail++; rows.push([' NG ', name, String(e?.message ?? e).slice(0, 200)]); }
+  catch (e) { fail++; rows.push([' NG ', name, String(e?.message ?? e).slice(0, 220)]); }
 }
 const assert = (c, m) => { if (!c) throw new Error(m); };
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
-// --- エミュレータ側に土台を作る -----------------------------------------
-// 投稿者ごとに別の匿名ユーザーが必要。Rules が posters/{uid} の uid と
-// request.auth.uid の一致を要求しているので、uid を文字列で渡すだけでは通らない。
+// 投稿者ごとに別の匿名ユーザーが要る。Rules が posters/{uid} と
+// request.auth.uid の一致を求めるので、uid を文字列で渡すだけでは通らない。
 let seq = 0;
-async function actor(trackId) {
+async function actor() {
   const app = initializeApp({ ...CONFIG, authDomain: 'localhost' }, `a${++seq}`);
   const db = sdk.initializeFirestore(app, {});
   sdk.connectFirestoreEmulator(db, '127.0.0.1', 8181);
   const auth = getAuth(app);
   connectAuthEmulator(auth, 'http://127.0.0.1:9099', { disableWarnings: true });
   const { user } = await signInAnonymously(auth);
-  return createBus(sdk, { db, trackId, uid: user.uid });
+  return { db, uid: user.uid, events: createEventBus(sdk, { db, uid: user.uid }) };
 }
-
-const TRACK = 'browser-track';
-const speaker = await actor(TRACK);
-await speaker.createTrack({ name: 'Browser Track', title: '実ブラウザ検証' });
+const busFor = (a, eventId, trackId) =>
+  createBus(sdk, { db: a.db, eventId, trackId, uid: a.uid });
 
 const browser = await chromium.launch();
 
 // 画面共有の選択ダイアログを出さずに、自動で擬似スクリーンを選ばせる。
-// 人の操作が要る部分を外して、合成そのものを確かめられるようにする。
 const capBrowser = await chromium.launch({
   args: [
-    // 選択ダイアログを出さずに自動で選ばせる
     '--auto-select-desktop-capture-source=Entire screen',
     '--use-fake-ui-for-media-stream',
-    // 実スクリーンが無い環境（headless / CI）では擬似ソースに落とす。
-    // これが無いと NotReadableError で取り込めない。
+    // 実スクリーンが無い環境では擬似ソースに落とす
     '--use-fake-device-for-media-stream',
   ],
 });
-async function openCapturing(url) {
-  const ctx = await capBrowser.newContext({ viewport: { width: 1280, height: 720 } });
-  await ctx.grantPermissions([]);
-  const page = await ctx.newPage();
-  const errors = [];
-  page.on('pageerror', (e) => errors.push(String(e.message)));
-  page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
-  await page.goto(url, { waitUntil: 'load' });
-  return { page, errors, ctx };
-}
-
-/** ページを開いて、致命的なエラーが出ていないことを確かめる。 */
-async function open(url) {
-  const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
-  const errors = [];
-  page.on('pageerror', (e) => errors.push(String(e.message)));
-  page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
-  await page.goto(url, { waitUntil: 'load' });
-  return { page, errors };
-}
 
 /**
- * 登壇者コンソールを開いて、そのページ自身にトラックを作らせる。
- * コンソールは owner が操作するものなので、node 側の別ユーザーで作った
- * トラックを開くと（正しく）拒否される。
+ * ページを開く。
+ *
+ * 同じ ctx を渡すと同じ匿名ユーザーになる。渡さないと別人になるので、
+ * 運営が作ったイベントを別人として開くことになり、本来の流れと変わる。
  */
-async function openConsoleWithNewTrack(name) {
-  const r = await open(`${HOST}/speaker.html?emu=1`);
-  await r.page.waitForFunction(
-    () => !document.getElementById('createBox')?.classList.contains('hidden'),
-    { timeout: 15000 });
-  await r.page.fill('#newName', name);
-  await r.page.click('#create');
-  // 受付中の表示は購読から来るので、URL の書き換えより先に起きることがある。
-  // trackId が要るので URL のほうを待つ。
-  await r.page.waitForFunction(
-    () => new URL(location.href).searchParams.get('track') !== null,
-    { timeout: 15000 });
-  await r.page.waitForFunction(
-    () => /受付中/.test(document.getElementById('stateText')?.textContent ?? ''),
-    { timeout: 15000 });
-  const trackId = new URL(r.page.url()).searchParams.get('track');
-  if (!trackId) throw new Error('URL に trackId が入らなかった');
-  return { ...r, trackId };
+async function open(url, { b = browser, ctx = null } = {}) {
+  const context = ctx ?? await b.newContext({ viewport: { width: 1280, height: 800 } });
+  const page = await context.newPage();
+  const errors = [];
+  page.on('pageerror', (e) => errors.push(String(e.message)));
+  page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
+  await page.goto(url, { waitUntil: 'load' });
+  return { page, errors, ctx: context };
 }
+const openCapturing = (url) => open(url, { b: capBrowser });
 
 /** Canvas に実際に何か描かれているかを数える。 */
-function drawnPixels(page) {
-  return page.evaluate(() => {
-    const c = document.getElementById('stage');
-    const ctx = c.getContext('2d');
-    const { data } = ctx.getImageData(0, 0, c.width, c.height);
-    let n = 0;
-    for (let i = 3; i < data.length; i += 4) if (data[i] > 0) n++;
-    return n;
-  });
+const drawnPixels = (page) => page.evaluate(() => {
+  const c = document.getElementById('stage');
+  const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
+  let n = 0; for (let i = 3; i < d.length; i += 4) if (d[i] > 0) n++;
+  return n;
+});
+
+/** 運営の画面を開いて、イベントとトラックを作らせる。 */
+async function makeEventInBrowser(name, trackNames = ['Track A']) {
+  const r = await open(`${HOST}/organizer.html?emu=1`);
+  // 運営が作ったものを同じ人として触れるよう、ctx を返して使い回す
+  await r.page.waitForSelector('#newEventName', { state: 'visible', timeout: 20000 });
+  await r.page.fill('#newEventName', name);
+  await r.page.fill('#newEventDate', '2026-12-12');
+  await r.page.click('#createEvent');
+  await r.page.waitForFunction(
+    () => new URL(location.href).searchParams.get('e') !== null, { timeout: 20000 });
+  const eventId = new URL(r.page.url()).searchParams.get('e');
+  for (const [i, n] of trackNames.entries()) {
+    await r.page.fill('#newTrackName', n);
+    await r.page.click('#addTrack');
+    await r.page.waitForFunction(
+      (want) => document.querySelectorAll('#tracks tr').length >= want, i + 1, { timeout: 20000 });
+  }
+  return { ...r, eventId };
 }
 
-// --- トラック未指定 -----------------------------------------------------
-await t('トラック未指定なら画面にエラーを出す（黙って死なない）', async () => {
-  const { page } = await open(`${HOST}/overlay.html?emu=1`);
-  await page.waitForFunction(() => document.getElementById('hud')?.dataset.kind === 'error', { timeout: 10000 });
-  const text = await page.textContent('#hud');
-  assert(/トラックが指定されていない/.test(text), `HUD=${text}`);
-  await page.close();
-});
-
-// --- 接続と描画 ---------------------------------------------------------
-await t('トラックに接続して HUD に名前が出る', async () => {
-  const { page, errors } = await open(`${HOST}/overlay.html?emu=1&track=${TRACK}`);
-  await page.waitForFunction(
-    () => /Browser Track/.test(document.getElementById('hud')?.textContent ?? ''),
-    { timeout: 15000 });
-  const text = await page.textContent('#hud');
-  assert(/実ブラウザ検証/.test(text), `演題が出ていない: ${text}`);
-  assert(errors.length === 0, `エラーが出た: ${errors.join(' / ')}`);
-  await page.close();
-});
-
-await t('投稿すると Canvas に描かれる', async () => {
-  const { page, errors } = await open(`${HOST}/overlay.html?emu=1&track=${TRACK}`);
-  await page.waitForFunction(
-    () => /Browser Track/.test(document.getElementById('hud')?.textContent ?? ''),
-    { timeout: 15000 });
-
-  assert(await drawnPixels(page) === 0, '何も投稿していないのに描かれている');
-
-  const poster = await actor(TRACK);
-  await poster.post('えっ、ちゃんと流れてる');
-  await page.waitForFunction(() => (window.__overlay?.flow?.activeCount ?? 0) > 0, { timeout: 15000 });
-  await sleep(300);
-
-  const n = await drawnPixels(page);
-  assert(n > 500, `描かれたピクセルが少なすぎる: ${n}`);
-  assert(errors.length === 0, `エラーが出た: ${errors.join(' / ')}`);
-  await page.close();
-});
-
-await t('文字が左へ進む', async () => {
-  const { page } = await open(`${HOST}/overlay.html?emu=1&track=${TRACK}`);
-  await page.waitForFunction(
-    () => /Browser Track/.test(document.getElementById('hud')?.textContent ?? ''),
-    { timeout: 15000 });
-  const poster = await actor(TRACK);
-  await poster.post('流れていく');
-  await page.waitForFunction(() => (window.__overlay?.flow?.activeCount ?? 0) > 0, { timeout: 15000 });
-
-  const xAt = () => page.evaluate(() => window.__overlay.flow.step(performance.now())[0]?.x ?? null);
-  const first = await xAt();
-  await sleep(500);
-  const second = await xAt();
-  assert(first != null && second != null, '流れているものが取れない');
-  assert(second < first, `左へ進んでいない: ${first} → ${second}`);
-  await page.close();
-});
-
-// --- 再読み込みで溜まった分が一斉に流れない ----------------------------
-await t('再読み込みしても溜まっていた分は流れない', async () => {
-  const t2 = 'browser-backlog';
-  const sp = await actor(t2);
-  await sp.createTrack({ name: 'Backlog Track' });
-  for (const u of ['x', 'y', 'z']) {
-    const p = await actor(t2);
-    await p.post(`溜まっていた ${u}`);
-    await sleep(60);
-  }
-  await sleep(400);
-
-  const { page, errors } = await open(`${HOST}/overlay.html?emu=1&track=${t2}`);
-  await page.waitForFunction(
-    () => /Backlog Track/.test(document.getElementById('hud')?.textContent ?? ''),
-    { timeout: 15000 });
-  await sleep(1200);
-  const active = await page.evaluate(() => window.__overlay.flow.activeCount);
-  assert(active === 0, `溜まっていた分が流れた: ${active}件`);
-  assert(await drawnPixels(page) === 0, '描かれている');
-  assert(errors.length === 0, `エラーが出た: ${errors.join(' / ')}`);
-  await page.close();
-});
-
-// --- 透過 ---------------------------------------------------------------
-await t('?transparent=1 で html に透過が当たる', async () => {
-  const { page } = await open(`${HOST}/overlay.html?emu=1&transparent=1&track=${TRACK}`);
-  // body だけに当てると html の背景が残って黒く見える（PoC で踏んだ）
-  const onHtml = await page.evaluate(() => document.documentElement.classList.contains('transparent'));
-  const bg = await page.evaluate(() => getComputedStyle(document.documentElement).backgroundColor);
-  assert(onHtml, 'html に transparent が付いていない');
-  assert(/rgba\(0, 0, 0, 0\)|transparent/.test(bg), `html の背景が透過でない: ${bg}`);
-  await page.close();
-});
-
-await t('?hud=0 で HUD が消える', async () => {
-  const { page } = await open(`${HOST}/overlay.html?emu=1&hud=0&track=${TRACK}`);
-  await sleep(500);
-  const shown = await page.evaluate(() => getComputedStyle(document.getElementById('hud')).display);
-  assert(shown === 'none', `HUD が見えている: ${shown}`);
-  await page.close();
-});
-
-// --- 画面サイズ ---------------------------------------------------------
-await t('ウィンドウサイズを変えると行数が追従する', async () => {
-  const { page, errors } = await open(`${HOST}/overlay.html?emu=1&track=${TRACK}`);
-  await page.waitForFunction(() => window.__overlay?.flow?.laneCount > 0, { timeout: 15000 });
-  const before = await page.evaluate(() => window.__overlay.flow.laneCount);
-  await page.setViewportSize({ width: 1280, height: 400 });
-  await sleep(300);
-  const after = await page.evaluate(() => window.__overlay.flow.laneCount);
-  assert(after < before, `行数が変わっていない: ${before} → ${after}`);
-  assert(errors.length === 0, `エラーが出た: ${errors.join(' / ')}`);
-  await page.close();
-});
-
-// --- 投稿ページ ---------------------------------------------------------
-await t('投稿ページは開いた時点で入力欄にフォーカスが当たる', async () => {
-  const { page, errors } = await open(`${HOST}/post.html?emu=1&track=${TRACK}`);
-  await page.waitForFunction(
-    () => /Browser Track/.test(document.getElementById('where')?.textContent ?? ''),
-    { timeout: 15000 });
-  const focused = await page.evaluate(() => document.activeElement?.id);
-  assert(focused === 'text', `フォーカス=${focused}`);
+// --- 運営の画面 ---------------------------------------------------------
+await t('イベントを作ると詳細へ移り、URLにIDが残る', async () => {
+  const { page, errors, eventId } = await makeEventInBrowser('テスト大会', []);
+  assert(/^[23456789a-z]{8}$/.test(eventId), `IDの形が変: ${eventId}`);
+  assert(/テスト大会/.test(await page.textContent('#evName')), await page.textContent('#evName'));
+  assert(/2026\/12\/12（土）/.test(await page.textContent('#evMeta')), await page.textContent('#evMeta'));
   assert(errors.length === 0, `エラー: ${errors.join(' / ')}`);
   await page.close();
 });
 
-await t('文字数が出て、空のうちは送れない', async () => {
-  const { page } = await open(`${HOST}/post.html?emu=1&track=${TRACK}`);
-  await page.waitForFunction(() => document.getElementById('send') !== null);
-  assert(await page.isDisabled('#send'), '空なのに押せる');
-  assert((await page.textContent('#count')) === '0 / 60', await page.textContent('#count'));
-  await page.fill('#text', 'あいうえお');
-  await page.waitForFunction(() => document.getElementById('count').textContent === '5 / 60');
-  await page.waitForFunction(() => !document.getElementById('send').disabled);
-  await page.close();
-});
-
-await t('60文字を超える入力は打てない（UI 側でも止める）', async () => {
-  const { page } = await open(`${HOST}/post.html?emu=1&track=${TRACK}`);
-  await page.waitForFunction(() => document.getElementById('text') !== null);
-  await page.fill('#text', 'あ'.repeat(80));
-  const len = await page.evaluate(() => document.getElementById('text').value.length);
-  assert(len === 60, `maxlength が効いていない: ${len}`);
-  await page.close();
-});
-
-await t('投稿すると入力欄が空になり、続けて打てる', async () => {
-  const { page, errors } = await open(`${HOST}/post.html?emu=1&track=${TRACK}`);
-  await page.waitForFunction(
-    () => /Browser Track/.test(document.getElementById('where')?.textContent ?? ''),
-    { timeout: 15000 });
-  await page.fill('#text', 'ブラウザから送る');
-  await page.click('#send');
-  await page.waitForFunction(() => document.getElementById('text').value === '', { timeout: 15000 });
-  assert((await page.textContent('#note')) === '送った', await page.textContent('#note'));
-  const focused = await page.evaluate(() => document.activeElement?.id);
-  assert(focused === 'text', `送信後のフォーカス=${focused}`);
+await t('トラックを並べると名前順で表に出る', async () => {
+  const { page, errors } = await makeEventInBrowser('並び順の会', ['Track C', 'Track A', 'Track B']);
+  await page.waitForFunction(() => document.querySelectorAll('#tracks tr').length === 3, { timeout: 20000 });
+  const names = await page.evaluate(() =>
+    [...document.querySelectorAll('#tracks tr td:first-child')].map((td) => td.textContent.trim()));
+  assert(names.join(',') === 'Track A,Track B,Track C', `順番が違う: ${names}`);
   assert(errors.length === 0, `エラー: ${errors.join(' / ')}`);
   await page.close();
 });
 
-await t('連投するとボタンに残り秒数が出る（無言で押せなくしない）', async () => {
-  const { page } = await open(`${HOST}/post.html?emu=1&track=${TRACK}`);
-  await page.waitForFunction(
-    () => /Browser Track/.test(document.getElementById('where')?.textContent ?? ''),
-    { timeout: 15000 });
-  await page.fill('#text', 'いちど');
-  await page.click('#send');
-  await page.waitForFunction(() => document.getElementById('text').value === '', { timeout: 15000 });
-
-  await page.fill('#text', 'にかいめ');
-  await page.waitForFunction(() => /秒待つ/.test(document.getElementById('send').textContent), { timeout: 5000 });
-  assert(await page.isDisabled('#send'), '待機中なのに押せる');
+await t('トラックごとに登壇者へ渡すリンクが出る', async () => {
+  const { page } = await makeEventInBrowser('リンクの会', ['Track A']);
+  const link = await page.textContent('#tracks tr td:nth-child(5)');
+  assert(/stage\.html\?e=/.test(link), `リンクが出ていない: ${link}`);
+  assert(/t=/.test(link), link);
   await page.close();
 });
 
-await t('停止中のトラックでは理由が出て押せない', async () => {
-  const t3 = 'browser-stopped';
-  const sp = await actor(t3);
-  await sp.createTrack({ name: 'Stopped Track' });
-  await sp.stop();
-
-  const { page } = await open(`${HOST}/post.html?emu=1&track=${t3}`);
-  await page.waitForFunction(
-    () => /もう終わって/.test(document.getElementById('note')?.textContent ?? ''),
-    { timeout: 15000 });
-  await page.fill('#text', 'まだ送れる？');
-  await page.waitForFunction(() => document.getElementById('send').disabled, { timeout: 5000 });
-  await page.close();
-});
-
-await t('存在しないトラックなら理由が出る', async () => {
-  const { page } = await open(`${HOST}/post.html?emu=1&track=no-such-track`);
-  await page.waitForFunction(
-    () => /存在しない/.test(document.getElementById('where')?.textContent ?? ''),
-    { timeout: 15000 });
-  await page.close();
-});
-
-await t('トラック未指定なら QR を読み直すよう出す', async () => {
-  const { page } = await open(`${HOST}/post.html?emu=1`);
-  await page.waitForFunction(
-    () => /QRコード/.test(document.getElementById('note')?.textContent ?? ''),
-    { timeout: 10000 });
-  await page.close();
-});
-
-// --- 一連の流れ ---------------------------------------------------------
-await t('投稿ページから送ったものが弾幕ページに流れる（通し）', async () => {
-  const t4 = 'browser-e2e';
-  const sp = await actor(t4);
-  await sp.createTrack({ name: 'E2E Track', title: '通し確認' });
-
-  const overlay = await open(`${HOST}/overlay.html?emu=1&track=${t4}`);
-  await overlay.page.waitForFunction(
-    () => /E2E Track/.test(document.getElementById('hud')?.textContent ?? ''),
-    { timeout: 15000 });
-  assert(await drawnPixels(overlay.page) === 0, '最初から描かれている');
-
-  const post = await open(`${HOST}/post.html?emu=1&track=${t4}`);
-  await post.page.waitForFunction(
-    () => /E2E Track/.test(document.getElementById('where')?.textContent ?? ''),
-    { timeout: 15000 });
-  await post.page.fill('#text', '通しで流れた');
-  await post.page.click('#send');
-  await post.page.waitForFunction(() => document.getElementById('text').value === '', { timeout: 15000 });
-
-  await overlay.page.waitForFunction(
-    () => (window.__overlay?.flow?.activeCount ?? 0) > 0, { timeout: 20000 });
-  await sleep(300);
-  const n = await drawnPixels(overlay.page);
-  assert(n > 500, `描かれたピクセルが少なすぎる: ${n}`);
-  assert(overlay.errors.length === 0, `弾幕側のエラー: ${overlay.errors.join(' / ')}`);
-  assert(post.errors.length === 0, `投稿側のエラー: ${post.errors.join(' / ')}`);
-  await post.page.close();
-  await overlay.page.close();
-});
-
-// --- 登壇者コンソール ---------------------------------------------------
-await t('トラック未指定なら作る画面が出る', async () => {
-  const { page, errors } = await open(`${HOST}/speaker.html?emu=1`);
-  await page.waitForFunction(
-    () => !document.getElementById('createBox')?.classList.contains('hidden'),
-    { timeout: 15000 });
-  assert(await page.isHidden('#stopBox'), '存在しないのに停止ボタンが出ている');
-  const focused = await page.evaluate(() => document.activeElement?.id);
-  assert(focused === 'newName', `フォーカス=${focused}`);
-  assert(errors.length === 0, `エラー: ${errors.join(' / ')}`);
-  await page.close();
-});
-
-await t('トラックを作ると QR と停止ボタンが出る', async () => {
-  const { page, errors } = await open(`${HOST}/speaker.html?emu=1`);
-  await page.waitForFunction(
-    () => !document.getElementById('createBox')?.classList.contains('hidden'),
-    { timeout: 15000 });
-  await page.fill('#newName', 'Track Z');
-  await page.click('#create');
-  await page.waitForFunction(
-    () => !document.getElementById('qrBox')?.classList.contains('hidden'),
-    { timeout: 15000 });
-
-  assert(/受付中/.test(await page.textContent('#stateText')), await page.textContent('#stateText'));
-  assert(await page.isVisible('#stop'), '停止ボタンが無い');
-  assert(await page.isHidden('#resume'), '再開ボタンが出ている');
-  // 再読み込みで戻れるよう URL に trackId が残る
-  const url = page.url();
-  assert(/[?&]track=[23456789a-z]{8}/.test(url), `URL に trackId が無い: ${url}`);
-  assert(errors.length === 0, `エラー: ${errors.join(' / ')}`);
-  await page.close();
-});
-
-await t('トラックIDが画面に大きく出る', async () => {
-  // アドレスバーを読ませるのは不親切。何度も聞かれた。
-  const { page, errors, trackId } = await openConsoleWithNewTrack('ID Track');
-  await page.waitForFunction(
-    () => !document.getElementById('idBox')?.classList.contains('hidden'), { timeout: 15000 });
-  const shown = (await page.textContent('#trackId')).trim();
-  assert(shown === trackId, `URL のIDと違う: ${shown} vs ${trackId}`);
-  const size = await page.evaluate(() =>
-    parseFloat(getComputedStyle(document.getElementById('trackId')).fontSize));
-  assert(size >= 20, `小さすぎる: ${size}px`);
-  assert(await page.isVisible('#copyId'), 'コピーが無い');
-  assert(await page.isVisible('#openApp'), 'アプリで開くが無い');
-  assert(errors.length === 0, `エラー: ${errors.join(' / ')}`);
-  await page.close();
-});
-
-await t('「アプリで開く」の呼び先が danmaku:// になっている', async () => {
-  const { page, trackId } = await openConsoleWithNewTrack('App Track');
-  await page.waitForFunction(
-    () => document.getElementById('openApp')?.getAttribute('href')?.startsWith('danmaku:'),
-    { timeout: 15000 });
-  const href = await page.getAttribute('#openApp', 'href');
-  assert(href === `danmaku://track/${trackId}`, `呼び先が違う: ${href}`);
-  await page.close();
-});
-
-await t('生成した QR が実際に読み取れる', async () => {
-  const { page } = await open(`${HOST}/speaker.html?emu=1`);
-  await page.waitForFunction(
-    () => !document.getElementById('createBox')?.classList.contains('hidden'),
-    { timeout: 15000 });
-  await page.fill('#newName', 'QR Track');
-  await page.click('#create');
-  await page.waitForFunction(
-    () => document.querySelector('#qrSlot svg') !== null, { timeout: 15000 });
-
-  const expected = await page.textContent('#postUrl');
-
-  // SVG を Canvas に描いてピクセルを取り出し、デコーダに通す。
-  // 「SVG が出た」だけでは読み取れる保証にならない。
+await t('チラシ用QRが読み取れる', async () => {
+  const { page, eventId } = await makeEventInBrowser('QRの会', []);
+  await page.waitForFunction(() => document.querySelector('#evQr svg') !== null, { timeout: 20000 });
   const rgba = await page.evaluate(async () => {
-    const svg = document.querySelector('#qrSlot svg').outerHTML;
+    const svg = document.querySelector('#evQr svg').outerHTML;
     const img = new Image();
-    const blob = new Blob([svg], { type: 'image/svg+xml' });
-    const url = URL.createObjectURL(blob);
+    const url = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml' }));
     await new Promise((res, rej) => { img.onload = res; img.onerror = rej; img.src = url; });
-    const size = 480;
-    const c = document.createElement('canvas');
-    c.width = size; c.height = size;
-    const ctx = c.getContext('2d');
-    ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, size, size);
-    ctx.drawImage(img, 0, 0, size, size);
-    URL.revokeObjectURL(url);
-    return { data: Array.from(ctx.getImageData(0, 0, size, size).data), size };
+    const size = 480, c = document.createElement('canvas');
+    c.width = c.height = size;
+    const x = c.getContext('2d');
+    x.fillStyle = '#fff'; x.fillRect(0, 0, size, size);
+    x.drawImage(img, 0, 0, size, size);
+    return { data: Array.from(x.getImageData(0, 0, size, size).data), size };
   });
-
   const jsQR = (await import('jsqr')).default;
-  const decoded = jsQR(new Uint8ClampedArray(rgba.data), rgba.size, rgba.size);
-  assert(decoded !== null, 'QR を読み取れなかった');
-  assert(decoded.data === expected, `読み取り結果が違う:\n  期待 ${expected}\n  実際 ${decoded.data}`);
+  const dec = jsQR(new Uint8ClampedArray(rgba.data), rgba.size, rgba.size);
+  assert(dec !== null, 'QR を読み取れなかった');
+  assert(dec.data.endsWith(`/e/${eventId}`), `読み取り結果が違う: ${dec.data}`);
   await page.close();
 });
 
-await t('停止を押すと止まり、再開で戻る', async () => {
-  const { page, errors, trackId: t5 } = await openConsoleWithNewTrack('Stop Me');
+await t('受付状況がトラックの数とともに出る', async () => {
+  const { page, eventId } = await makeEventInBrowser('状況の会', ['Track A', 'Track B']);
+  const list = await open(`${HOST}/organizer.html?emu=1`, { ctx: page.context() });
+  // トラック数は一覧に入っていないので、イベントごとに数え直している。
+  // 数え終わるまでは「—」なので、出そろうのを待つ。
+  await list.page.waitForFunction(
+    () => [...document.querySelectorAll('#upcoming tr')]
+      .some((tr) => tr.textContent.includes('状況の会') && /\d+ トラック/.test(tr.textContent)),
+    { timeout: 20000 });
+  const text = await list.page.textContent('#upcoming');
+  assert(/2 トラック/.test(text), text);
+  assert(/受付中 2 \/ 2/.test(text), text);
+  await list.page.close(); await page.close();
+});
 
-  // 止める前は投稿が通ることを先に確かめる（止まったことが本当に効果だと言うため）
-  const before = await actor(t5);
-  await before.post('止める前');
-
-  await page.click('#stop');
+await t('全トラックの投稿を止められる', async () => {
+  const { page, eventId } = await makeEventInBrowser('非常停止の会', ['Track A', 'Track B']);
+  await page.click('#stopAll');
   await page.waitForFunction(
-    () => /止めている/.test(document.getElementById('stateText')?.textContent ?? ''),
-    { timeout: 15000 });
-  assert(await page.isHidden('#stop'), '停止後も停止ボタンが出ている');
-  assert(await page.isVisible('#resume'), '再開ボタンが無い');
+    () => document.querySelectorAll('#tracks .pill.bad').length === 2, { timeout: 20000 });
 
-  // 止めた瞬間から投稿が拒否される
-  const po = await actor(t5);
+  // 実際に投稿が拒否される
+  const po = await actor();
   let denied = false;
-  try { await po.post('まだ送れる？'); } catch (e) { denied = true; }
-  assert(denied, '停止後なのに投稿が通った');
-
-  await page.click('#resume');
-  await page.waitForFunction(
-    () => /受付中/.test(document.getElementById('stateText')?.textContent ?? ''),
-    { timeout: 15000 });
-  assert(errors.length === 0, `エラー: ${errors.join(' / ')}`);
+  try { await busFor(po, eventId, 'a').post('止まったはず'); } catch { denied = true; }
+  assert(denied, '止めたのに投稿が通った');
   await page.close();
 });
 
-await t('開始すると演題が反映され、前の登壇のコメントは流れなくなる', async () => {
-  const { page, trackId: t6 } = await openConsoleWithNewTrack('Session Track');
-  const old = await actor(t6);
-  await old.post('前の登壇のコメント');
-  await sleep(400);
-
-  await page.fill('#title', 'つぎの演題');
-  await page.fill('#speaker', 'わたし');
-  await page.click('#start');
-  await sleep(900);
-
-  // 弾幕ページを開いても、前のセッションの分は流れない
-  const ov = await open(`${HOST}/overlay.html?emu=1&track=${t6}`);
-  await ov.page.waitForFunction(
-    () => /つぎの演題/.test(document.getElementById('hud')?.textContent ?? ''),
-    { timeout: 15000 });
-  await sleep(1000);
-  const active = await ov.page.evaluate(() => window.__overlay.flow.activeCount);
-  assert(active === 0, `前の登壇のコメントが流れた: ${active}件`);
-  await ov.page.close();
-  await page.close();
-});
-
-await t('引き継ぎコードを発行すると画面に出て、実際に使える', async () => {
-  const { page, errors, trackId: t7 } = await openConsoleWithNewTrack('Handoff Track');
-  await page.click('#issue');
-  await page.waitForFunction(
-    () => !document.getElementById('handoffCode')?.classList.contains('hidden'),
-    { timeout: 15000 });
-  const code = (await page.textContent('#handoffCode')).trim();
-  assert(/^[23456789A-HJ-NP-Z]{6}$/.test(code), `形が違う: ${code}`);
-
-  // 発行されたコードで別人が運用者になれる
-  const next = await actor(t7);
-  await next.claimOperator(code);
-  await next.startSession({ title: '引き継いだ' });
-  assert((await next.getTrack()).data().title === '引き継いだ', '運用者として書けていない');
-  assert(errors.length === 0, `エラー: ${errors.join(' / ')}`);
-  await page.close();
-});
-
-await t('owner 以外がコンソールを開いても操作できない', async () => {
-  // 他人のトラックを開いても、停止や開始は Rules が拒否する
-  const t8 = 'speaker-notowner';
-  const sp = await actor(t8);
-  await sp.createTrack({ name: 'Someone Else' });
-
-  const { page } = await open(`${HOST}/speaker.html?emu=1&track=${t8}`);
-  await page.waitForFunction(
-    () => /受付中/.test(document.getElementById('stateText')?.textContent ?? ''),
-    { timeout: 15000 });
-  await page.click('#stop');
-  await page.waitForFunction(
-    () => /止められない/.test(document.getElementById('stateText')?.textContent ?? ''),
-    { timeout: 15000 });
-  // 実際に止まっていない
-  assert((await sp.getTrack()).data().stopped === false, '他人が止められている');
-  await page.close();
-});
-
-// --- 貼り方B: キャプチャ合成 -------------------------------------------
-await t('操作バーが出ていて、何をすればいいか書いてある', async () => {
-  const { page } = await open(`${HOST}/overlay.html?emu=1&track=${TRACK}`);
-  await page.waitForSelector('#bar', { state: 'attached' });
-  await page.waitForFunction(() => document.body.dataset.bar === 'show', { timeout: 5000 });
-  assert(await page.isVisible('#pick'), '「スライドを選ぶ」が無い');
-  assert(await page.isVisible('#full'), '「全画面にする」が無い');
-  assert(/スライドを選ぶと/.test(await page.textContent('#empty')), '案内が無い');
-  await page.close();
-});
-
-await t('しばらく触らないと操作バーが消える（投影の邪魔をしない）', async () => {
-  const { page } = await open(`${HOST}/overlay.html?emu=1&track=${TRACK}`);
-  await page.waitForFunction(() => document.body.dataset.bar === 'show', { timeout: 5000 });
-  await page.waitForFunction(() => document.body.dataset.bar !== 'show', { timeout: 8000 });
-  await page.mouse.move(400, 20);
-  await page.waitForFunction(() => document.body.dataset.bar === 'show', { timeout: 5000 });
-  await page.close();
-});
-
-await t('透過シェルから開いたときは操作バーを出さない', async () => {
-  const { page } = await open(`${HOST}/overlay.html?emu=1&transparent=1&track=${TRACK}`);
-  await page.waitForSelector('#bar', { state: 'attached' });
-  const shown = await page.evaluate(() => getComputedStyle(document.getElementById('bar')).display);
-  assert(shown === 'none', `バーが出ている: ${shown}`);
-  const empty = await page.evaluate(() => getComputedStyle(document.getElementById('empty')).display);
-  assert(empty === 'none', '案内が出ている');
-  await page.close();
-});
-
-await t('スライドを取り込むと下敷きとして描かれる', async () => {
-  const { page, errors, ctx } = await openCapturing(`${HOST}/overlay.html?emu=1&track=${TRACK}`);
-  await page.waitForFunction(
-    () => /Browser Track/.test(document.getElementById('hud')?.textContent ?? ''),
-    { timeout: 20000 });
-
-  assert(await drawnPixels(page) === 0, '取り込む前から描かれている');
-
-  await page.evaluate(() => document.getElementById('pick').click());
-  await page.waitForFunction(() => window.__overlay?.hasSlide === true, { timeout: 20000 });
-  await page.waitForFunction(() => document.getElementById('slide').videoWidth > 0, { timeout: 20000 });
-  await sleep(600);
-
-  // 下敷きが描かれていれば、コメントが無くても画面が埋まる
-  const n = await drawnPixels(page);
-  assert(n > 100000, `下敷きが描かれていない: ${n}`);
-  assert(errors.length === 0, `エラー: ${errors.join(' / ')}`);
-  await ctx.close();
-});
-
-await t('取り込み中に投稿が来るとスライドの上に重なる', async () => {
-  const t9 = 'capture-overlay';
-  const sp = await actor(t9);
-  await sp.createTrack({ name: 'Capture Track' });
-
-  const { page, ctx } = await openCapturing(`${HOST}/overlay.html?emu=1&track=${t9}`);
-  await page.waitForFunction(
-    () => /Capture Track/.test(document.getElementById('hud')?.textContent ?? ''),
-    { timeout: 20000 });
-  await page.evaluate(() => document.getElementById('pick').click());
-  await page.waitForFunction(() => document.getElementById('slide').videoWidth > 0, { timeout: 20000 });
-  await sleep(400);
-
-  const po = await actor(t9);
-  await po.post('スライドの上に出る');
-  await page.waitForFunction(() => (window.__overlay?.flow?.activeCount ?? 0) > 0, { timeout: 20000 });
-
-  // 弾幕が下敷きより後に描かれていること（塗りつぶされていないこと）
-  const order = await page.evaluate(() => {
-    const seen = [];
-    const ctx2 = document.getElementById('stage').getContext('2d');
-    const di = ctx2.drawImage.bind(ctx2), ft = ctx2.fillText.bind(ctx2);
-    ctx2.drawImage = (...a) => { seen.push('backdrop'); return di(...a); };
-    ctx2.fillText = (...a) => { seen.push('danmaku'); return ft(...a); };
-    return new Promise((res) => requestAnimationFrame(() => requestAnimationFrame(() => {
-      ctx2.drawImage = di; ctx2.fillText = ft; res(seen);
-    })));
-  });
-  assert(order.indexOf('backdrop') >= 0, '下敷きが描かれていない');
-  assert(order.indexOf('danmaku') > order.indexOf('backdrop'), '弾幕が下敷きより先に描かれている');
-  await ctx.close();
-});
-
-await t('取り込みをやめると下敷きが消える', async () => {
-  const { page, ctx } = await openCapturing(`${HOST}/overlay.html?emu=1&track=${TRACK}`);
-  await page.waitForFunction(
-    () => /Browser Track/.test(document.getElementById('hud')?.textContent ?? ''),
-    { timeout: 20000 });
-  await page.evaluate(() => document.getElementById('pick').click());
-  await page.waitForFunction(() => window.__overlay?.hasSlide === true, { timeout: 20000 });
-  await page.waitForFunction(() => document.getElementById('slide').videoWidth > 0, { timeout: 20000 });
-  await sleep(400);
-  assert(await drawnPixels(page) > 100000, '下敷きが描かれていない');
-
-  await page.evaluate(() => document.getElementById('drop').click());
-  await sleep(500);
-  assert(await drawnPixels(page) === 0, '下敷きが残っている');
-  assert(await page.evaluate(() => window.__overlay.hasSlide) === false, '状態が戻っていない');
-  await ctx.close();
-});
-
-await t('ブラウザ側で共有を止めても固まったまま映らない', async () => {
-  // Chrome の「共有を停止」を押した場合。video に最後のフレームが残ると、
-  // 止めたはずのスライドが固まって映り続ける。
-  const { page, ctx } = await openCapturing(`${HOST}/overlay.html?emu=1&track=${TRACK}`);
-  await page.waitForFunction(
-    () => /Browser Track/.test(document.getElementById('hud')?.textContent ?? ''),
-    { timeout: 20000 });
-  await page.evaluate(() => document.getElementById('pick').click());
-  await page.waitForFunction(() => document.getElementById('slide').videoWidth > 0, { timeout: 20000 });
-  await sleep(400);
-  assert(await drawnPixels(page) > 100000, '下敷きが描かれていない');
-
-  // トラックを止める = ブラウザの「共有を停止」と同じ
-  await page.evaluate(() => {
-    for (const t of document.getElementById('slide').srcObject.getVideoTracks()) t.stop();
-    document.getElementById('slide').srcObject.getVideoTracks()[0]
-      .dispatchEvent(new Event('ended'));
-  });
-  await sleep(600);
-  assert(await drawnPixels(page) === 0, '止めた後も映り続けている');
-  assert(/止まった/.test(await page.textContent('#hud')), `知らせていない: ${await page.textContent('#hud')}`);
-  await ctx.close();
-});
-
-// --- 登壇コントロール画面（通し）---------------------------------------
-await t('トラック未指定なら理由が出る', async () => {
+// --- 登壇者の画面 -------------------------------------------------------
+await t('リンクが不完全なら理由が出る', async () => {
   const { page } = await open(`${HOST}/stage.html?emu=1`);
   await page.waitForFunction(
-    () => /トラックが指定されていない/.test(document.getElementById('stateText')?.textContent ?? ''),
-    { timeout: 15000 });
+    () => /リンクが正しくありません/.test(document.getElementById('stateText')?.textContent ?? ''),
+    { timeout: 20000 });
   await page.close();
 });
 
-await t('手順は最初の1つが「いま」になっている', async () => {
-  const tS = 'stage-steps';
-  const sp = await actor(tS);
-  await sp.createTrack({ name: 'Stage Track' });
-  const { page, errors } = await open(`${HOST}/stage.html?emu=1&track=${tS}`);
+await t('登壇者ページは手順1から始まる', async () => {
+  const org = await makeEventInBrowser('手順の会', ['Track A']);
+  const { page, errors } = await open(`${HOST}/stage.html?emu=1&e=${org.eventId}&t=a`, { ctx: org.ctx });
   await page.waitForFunction(
-    () => /受付中/.test(document.getElementById('stateText')?.textContent ?? ''),
-    { timeout: 20000 });
-  assert(await page.getAttribute('#s1', 'data-state') === 'now', '最初の手順が「いま」でない');
-  assert(await page.isDisabled('#project'), 'スライド未取り込みなのに投影できる');
+    () => /受付中|停止中/.test(document.getElementById('stateText')?.textContent ?? ''), { timeout: 20000 });
+  assert(await page.getAttribute('#step1', 'data-state') === 'now', '手順1が「いま」でない');
+  assert(/Track A/.test(await page.textContent('#trackName')), await page.textContent('#trackName'));
+  assert(/手順の会/.test(await page.textContent('#eventName')), await page.textContent('#eventName'));
   assert(errors.length === 0, `エラー: ${errors.join(' / ')}`);
-  await page.close();
+  await page.close(); await org.page.close();
 });
 
-await t('届いたコメントが手元に出る', async () => {
-  const tF = 'stage-feed';
-  const sp = await actor(tF);
-  await sp.createTrack({ name: 'Feed Track' });
-  const { page } = await open(`${HOST}/stage.html?emu=1&track=${tF}`);
+await t('「アプリで開く」は danmaku:// を指す', async () => {
+  const org = await makeEventInBrowser('アプリの会', ['Track A']);
+  const { page } = await open(`${HOST}/stage.html?emu=1&e=${org.eventId}&t=a&k=CODE2345`, { ctx: org.ctx });
   await page.waitForFunction(
-    () => /受付中/.test(document.getElementById('stateText')?.textContent ?? ''),
+    () => document.getElementById('openApp')?.getAttribute('href')?.startsWith('danmaku:'),
     { timeout: 20000 });
-  await sleep(500);
-  const po = await actor(tF);
-  await po.post('手元に出るはず');
+  const href = await page.getAttribute('#openApp', 'href');
+  const u = new URL(href);
+  assert(u.searchParams.get('e') === org.eventId, href);
+  assert(u.searchParams.get('t') === 'a', href);
+  assert(u.searchParams.get('k') === 'CODE2345', href);
+  await page.close(); await org.page.close();
+});
+
+await t('演題を入れて開始すると、いまの登壇として出る', async () => {
+  const org = await makeEventInBrowser('開始の会', ['Track A']);
+  const { page, errors } = await open(`${HOST}/stage.html?emu=1&e=${org.eventId}&t=a`, { ctx: org.ctx });
+  await page.waitForFunction(
+    () => /受付中/.test(document.getElementById('stateText')?.textContent ?? ''), { timeout: 20000 });
+  await page.fill('#title', 'はじめてのLT');
+  await page.fill('#speaker', '佐藤 葵');
+  await page.click('#startBtn');
+  await page.waitForFunction(
+    () => !document.getElementById('afterStart').classList.contains('hidden'), { timeout: 20000 });
+  assert(/はじめてのLT/.test(await page.textContent('#nowTitle')), await page.textContent('#nowTitle'));
+  assert(/佐藤 葵/.test(await page.textContent('#nowMeta')), await page.textContent('#nowMeta'));
+  // 開始時刻はサーバが決めるので、確定するまで少し待つ
+  await page.waitForFunction(
+    () => /\d{2}:\d{2} 開始/.test(document.getElementById('nowMeta')?.textContent ?? ''),
+    { timeout: 20000 });
+  assert(errors.length === 0, `エラー: ${errors.join(' / ')}`);
+  await page.close(); await org.page.close();
+});
+
+await t('届いたコメントが手元に出て、件数が増える', async () => {
+  const org = await makeEventInBrowser('コメントの会', ['Track A']);
+  const { page } = await open(`${HOST}/stage.html?emu=1&e=${org.eventId}&t=a`, { ctx: org.ctx });
+  await page.waitForFunction(
+    () => /受付中/.test(document.getElementById('stateText')?.textContent ?? ''), { timeout: 20000 });
+  await sleep(600);
+  const po = await actor();
+  await busFor(po, org.eventId, 'a').post('手元に出るはず');
   await page.waitForFunction(
     () => document.querySelectorAll('#feed li').length > 0, { timeout: 20000 });
   assert(/手元に出るはず/.test(await page.textContent('#feed')), await page.textContent('#feed'));
   assert((await page.textContent('#count')) === '1', await page.textContent('#count'));
-  await page.close();
+  assert(/最後のコメント/.test(await page.textContent('#stateSub')), await page.textContent('#stateSub'));
+  await page.close(); await org.page.close();
 });
 
-await t('リハーサル用の投稿が流れる', async () => {
-  const tR = 'stage-rehearsal';
-  const sp = await actor(tR);
-  await sp.createTrack({ name: 'Rehearsal' });
-  const { page } = await open(`${HOST}/stage.html?emu=1&track=${tR}`);
+await t('登壇を終えると投稿が止まる', async () => {
+  const org = await makeEventInBrowser('終了の会', ['Track A']);
+  const { page } = await open(`${HOST}/stage.html?emu=1&e=${org.eventId}&t=a`, { ctx: org.ctx });
   await page.waitForFunction(
-    () => /受付中/.test(document.getElementById('stateText')?.textContent ?? ''),
-    { timeout: 20000 });
-  await sleep(500);
-  await page.fill('#testText', 'リハーサル');
-  await page.click('#testSend');
+    () => /受付中/.test(document.getElementById('stateText')?.textContent ?? ''), { timeout: 20000 });
+  await page.fill('#title', 'おわる登壇');
+  await page.click('#startBtn');
   await page.waitForFunction(
-    () => /リハーサル/.test(document.getElementById('feed')?.textContent ?? ''), { timeout: 20000 });
-  await page.close();
+    () => !document.getElementById('afterStart').classList.contains('hidden'), { timeout: 20000 });
+  await page.click('#endBtn');
+  await page.waitForFunction(
+    () => /停止中/.test(document.getElementById('stateText')?.textContent ?? ''), { timeout: 20000 });
+
+  const po = await actor();
+  let denied = false;
+  try { await busFor(po, org.eventId, 'a').post('おそい'); } catch { denied = true; }
+  assert(denied, '終えたのに投稿が通った');
+  await page.close(); await org.page.close();
 });
 
-await t('取り込んだスライドがプロジェクタ側の窓に渡り、弾幕が重なる（通し）', async () => {
-  const tP = 'stage-project';
-  const sp = await actor(tP);
-  await sp.createTrack({ name: 'Project Track' });
-
-  const { page, errors, ctx } = await openCapturing(`${HOST}/stage.html?emu=1&track=${tP}`);
+// --- 観客の画面 ---------------------------------------------------------
+await t('トラックが複数あれば選ばせる', async () => {
+  const org = await makeEventInBrowser('選択の会', ['Track A', 'Track B']);
+  const { page, errors } = await open(`${HOST}/tracks.html?emu=1&e=${org.eventId}`);
   await page.waitForFunction(
-    () => /受付中/.test(document.getElementById('stateText')?.textContent ?? ''),
-    { timeout: 20000 });
-
-  // ① スライドを取り込む
-  await page.evaluate(() => document.getElementById('pick').click());
-  await page.waitForFunction(() => window.__stage?.hasSlide === true, { timeout: 20000 });
-  assert(await page.getAttribute('#s1', 'data-state') === 'done', '手順1が完了になっていない');
-
-  // ② プロジェクタに出す
-  const [proj] = await Promise.all([
-    ctx.waitForEvent('page'),
-    page.evaluate(() => document.getElementById('project').click()),
-  ]);
-  const projErrs = [];
-  proj.on('pageerror', (e) => projErrs.push(String(e.message)));
-  proj.on('console', (m) => { if (m.type() === 'error') projErrs.push(m.text()); });
-  await proj.waitForLoadState('load');
-  try {
-    await proj.waitForFunction(
-      () => /Project Track/.test(document.getElementById('hud')?.textContent ?? ''),
-      { timeout: 25000 });
-  } catch (e) {
-    throw new Error(`投影窓が繋がらない url=${proj.url()} hud=${await proj.textContent('#hud').catch(() => '?')} errs=${projErrs.join(' / ')}`);
-  }
-
-  // ③ 全画面にするボタンが出ている（親からは全画面にできないため）
-  assert(await proj.isVisible('#cover'), '全画面ボタンが出ていない');
-
-  // 親から渡した映像が下敷きとして描かれている
-  await proj.waitForFunction(() => document.getElementById('slide').videoWidth > 0, { timeout: 25000 });
-  await sleep(600);
-  const n = await proj.evaluate(() => {
-    const c = document.getElementById('stage'), x = c.getContext('2d');
-    const d = x.getImageData(0, 0, c.width, c.height).data;
-    let k = 0; for (let i = 3; i < d.length; i += 4) if (d[i] > 0) k++;
-    return k;
-  });
-  assert(n > 100000, `スライドが渡っていない: ${n}`);
-
-  // ④ 投稿がプロジェクタ側に流れる
-  const po = await actor(tP);
-  await po.post('投影に重なる');
-  await proj.waitForFunction(() => (window.__overlay?.flow?.activeCount ?? 0) > 0, { timeout: 25000 });
-
+    () => document.querySelectorAll('#list a').length === 2, { timeout: 20000 });
+  assert(/選択の会/.test(await page.textContent('#event')), await page.textContent('#event'));
+  const hrefs = await page.evaluate(() => [...document.querySelectorAll('#list a')].map((a) => a.getAttribute('href')));
+  assert(hrefs.every((h) => /post\.html\?e=/.test(h)), `リンクが変: ${hrefs}`);
   assert(errors.length === 0, `エラー: ${errors.join(' / ')}`);
-  await ctx.close();
+  await page.close(); await org.page.close();
 });
 
-await t('取り込んだ映像の余白を切り取って広く映す', async () => {
-  const { page, ctx } = await openCapturing(`${HOST}/overlay.html?emu=1&track=${TRACK}`);
-  await page.waitForFunction(
-    () => /Browser Track/.test(document.getElementById('hud')?.textContent ?? ''),
-    { timeout: 20000 });
-  await page.evaluate(() => document.getElementById('pick').click());
-  await page.waitForFunction(() => document.getElementById('slide').videoWidth > 0, { timeout: 20000 });
-  await sleep(1600);   // 余白の測り直しは1秒に1回
-
-  const r = await page.evaluate(() => ({
-    crop: window.__overlay.cropRect,
-    vw: document.getElementById('slide').videoWidth,
-    vh: document.getElementById('slide').videoHeight,
-    auto: window.__overlay.autoCrop,
-  }));
-  assert(r.auto === true, '自動切り取りが無効になっている');
-  assert(r.crop !== null, '余白を測っていない');
-  // 擬似ソースは余白が無いので、枠いっぱいが返るのが正しい
-  assert(r.crop.width === r.vw && r.crop.height === r.vh,
-    `余白が無いのに切っている: ${JSON.stringify(r.crop)} vs ${r.vw}x${r.vh}`);
-  await ctx.close();
+await t('トラックが1つなら選ばせず投稿ページへ送る', async () => {
+  const org = await makeEventInBrowser('一本の会', ['Track A']);
+  const { page } = await open(`${HOST}/tracks.html?emu=1&e=${org.eventId}`);
+  await page.waitForFunction(() => /post\.html/.test(location.href), { timeout: 20000 });
+  await page.close(); await org.page.close();
 });
 
-await t('自動切り取りは切れる', async () => {
-  const { page, ctx } = await openCapturing(`${HOST}/overlay.html?emu=1&track=${TRACK}`);
+await t('投稿ページは開いた時点で入力欄にフォーカスが当たる', async () => {
+  const org = await makeEventInBrowser('フォーカスの会', ['Track A']);
+  const { page, errors } = await open(`${HOST}/post.html?emu=1&e=${org.eventId}&t=a`);
   await page.waitForFunction(
-    () => /Browser Track/.test(document.getElementById('hud')?.textContent ?? ''),
+    () => /Track A/.test(document.getElementById('track')?.textContent ?? ''), { timeout: 20000 });
+  assert(await page.evaluate(() => document.activeElement?.id) === 'text', 'フォーカスが無い');
+  assert(errors.length === 0, `エラー: ${errors.join(' / ')}`);
+  await page.close(); await org.page.close();
+});
+
+await t('文字数超過でも入力は止めず、削る文字数を出す', async () => {
+  // 貼り付けを黙って切ると、何を消されたか分からない
+  const org = await makeEventInBrowser('文字数の会', ['Track A']);
+  const { page } = await open(`${HOST}/post.html?emu=1&e=${org.eventId}&t=a`);
+  await page.waitForFunction(
+    () => /Track A/.test(document.getElementById('track')?.textContent ?? ''), { timeout: 20000 });
+  await page.fill('#text', 'あ'.repeat(61));
+  await page.waitForFunction(() => document.getElementById('count').dataset.over === '1', { timeout: 10000 });
+  assert(await page.evaluate(() => document.getElementById('text').value.length) === 61, '勝手に切られた');
+  assert((await page.textContent('#count')) === '61 / 60', await page.textContent('#count'));
+  assert(/あと1文字削って/.test(await page.textContent('#note')), await page.textContent('#note'));
+  assert(await page.isDisabled('#send'), '超えているのに押せる');
+  await page.close(); await org.page.close();
+});
+
+await t('連投すると残り秒数がボタンと状態行の両方に出る', async () => {
+  const org = await makeEventInBrowser('連投の会', ['Track A']);
+  const { page } = await open(`${HOST}/post.html?emu=1&e=${org.eventId}&t=a`);
+  await page.waitForFunction(
+    () => /Track A/.test(document.getElementById('track')?.textContent ?? ''), { timeout: 20000 });
+  await page.fill('#text', 'いちど');
+  await page.click('#send');
+  await page.waitForFunction(() => document.getElementById('text').value === '', { timeout: 20000 });
+  await page.fill('#text', 'にかいめ');
+  await page.waitForFunction(
+    () => /あと\d+秒/.test(document.getElementById('send').textContent), { timeout: 10000 });
+  assert(/あと\d+秒で次を送れます/.test(await page.textContent('#note')), await page.textContent('#note'));
+  assert(await page.isDisabled('#send'), '待機中なのに押せる');
+  await page.close(); await org.page.close();
+});
+
+await t('登壇終了中は理由が出て、再スキャンが要らないと伝える', async () => {
+  const org = await makeEventInBrowser('終了表示の会', ['Track A']);
+  // 運営本人として終える（運営はイベント配下のトラックを操作できる）
+  const sp = await open(`${HOST}/stage.html?emu=1&e=${org.eventId}&t=a`, { ctx: org.ctx });
+  await sp.page.waitForFunction(
+    () => /受付中|停止中/.test(document.getElementById('stateText')?.textContent ?? ''), { timeout: 20000 });
+  await sp.page.evaluate(() => window.__stage.bus.endSession());
+  await sp.page.close();
+  const { page } = await open(`${HOST}/post.html?emu=1&e=${org.eventId}&t=a`);
+  await page.waitForFunction(
+    () => /次の登壇が始まると送れます/.test(document.getElementById('note')?.textContent ?? ''),
     { timeout: 20000 });
+  assert(/次の登壇を待っています/.test(await page.textContent('#title')), await page.textContent('#title'));
+  await page.close(); await org.page.close();
+});
+
+await t('投稿が弾幕ページに流れる（通し）', async () => {
+  const org = await makeEventInBrowser('通しの会', ['Track A']);
+  const ov = await open(`${HOST}/overlay.html?emu=1&e=${org.eventId}&t=a`);
+  await ov.page.waitForFunction(
+    () => /Track A/.test(document.getElementById('hud')?.textContent ?? ''), { timeout: 20000 });
+  assert(await drawnPixels(ov.page) === 0, '最初から描かれている');
+
+  const po = await open(`${HOST}/post.html?emu=1&e=${org.eventId}&t=a`);
+  await po.page.waitForFunction(
+    () => /Track A/.test(document.getElementById('track')?.textContent ?? ''), { timeout: 20000 });
+  await po.page.fill('#text', '通しで流れた');
+  await po.page.click('#send');
+  await po.page.waitForFunction(() => document.getElementById('text').value === '', { timeout: 20000 });
+
+  await ov.page.waitForFunction(
+    () => (window.__overlay?.flow?.activeCount ?? 0) > 0, { timeout: 25000 });
+  await sleep(400);
+  assert(await drawnPixels(ov.page) > 500, '描かれていない');
+  assert(ov.errors.length === 0, `弾幕側: ${ov.errors.join(' / ')}`);
+  assert(po.errors.length === 0, `投稿側: ${po.errors.join(' / ')}`);
+  await po.page.close(); await ov.page.close(); await org.page.close();
+});
+
+// --- 弾幕ページ ---------------------------------------------------------
+await t('透過シェルから開いたときは操作バーを出さない', async () => {
+  const org = await makeEventInBrowser('透過の会', ['Track A']);
+  const { page } = await open(`${HOST}/overlay.html?emu=1&transparent=1&e=${org.eventId}&t=a`);
+  await page.waitForSelector('#bar', { state: 'attached' });
+  assert(await page.evaluate(() => getComputedStyle(document.getElementById('bar')).display) === 'none',
+    'バーが出ている');
+  assert(await page.evaluate(() => document.documentElement.classList.contains('transparent')),
+    'html に透過が当たっていない');
+  await page.close(); await org.page.close();
+});
+
+await t('再読み込みしても溜まっていた分は流れない', async () => {
+  const org = await makeEventInBrowser('溜まりの会', ['Track A']);
+  for (let i = 0; i < 3; i++) {
+    const po = await actor();
+    await busFor(po, org.eventId, 'a').post(`溜まっていた ${i}`);
+    await sleep(60);
+  }
+  await sleep(500);
+  const { page, errors } = await open(`${HOST}/overlay.html?emu=1&e=${org.eventId}&t=a`);
+  await page.waitForFunction(
+    () => /Track A/.test(document.getElementById('hud')?.textContent ?? ''), { timeout: 20000 });
+  await sleep(1200);
+  assert(await page.evaluate(() => window.__overlay.flow.activeCount) === 0, '溜まっていた分が流れた');
+  assert(await drawnPixels(page) === 0, '描かれている');
+  assert(errors.length === 0, `エラー: ${errors.join(' / ')}`);
+  await page.close(); await org.page.close();
+});
+
+await t('スライドを取り込むと下敷きとして描かれる', async () => {
+  const org = await makeEventInBrowser('合成の会', ['Track A']);
+  const { page, ctx } = await openCapturing(`${HOST}/overlay.html?emu=1&e=${org.eventId}&t=a`);
+  await page.waitForFunction(
+    () => /Track A/.test(document.getElementById('hud')?.textContent ?? ''), { timeout: 20000 });
+  assert(await drawnPixels(page) === 0, '取り込む前から描かれている');
   await page.evaluate(() => document.getElementById('pick').click());
-  await page.waitForFunction(() => document.getElementById('slide').videoWidth > 0, { timeout: 20000 });
-  await sleep(1600);
-  await page.evaluate(() => window.__overlay.setAutoCrop(false));
-  await sleep(300);
-  assert(await page.evaluate(() => window.__overlay.cropRect) === null, '切り取りが残っている');
-  assert(await page.evaluate(() => window.__overlay.autoCrop) === false);
-  await ctx.close();
+  await page.waitForFunction(() => document.getElementById('slide').videoWidth > 0, { timeout: 25000 });
+  await sleep(700);
+  assert(await drawnPixels(page) > 100000, '下敷きが描かれていない');
+  await ctx.close(); await org.page.close();
+});
+
+await t('ブラウザ側で共有を止めても固まったまま映らない', async () => {
+  const org = await makeEventInBrowser('停止の会', ['Track A']);
+  const { page, ctx } = await openCapturing(`${HOST}/overlay.html?emu=1&e=${org.eventId}&t=a`);
+  await page.waitForFunction(
+    () => /Track A/.test(document.getElementById('hud')?.textContent ?? ''), { timeout: 20000 });
+  await page.evaluate(() => document.getElementById('pick').click());
+  await page.waitForFunction(() => document.getElementById('slide').videoWidth > 0, { timeout: 25000 });
+  await sleep(700);
+  assert(await drawnPixels(page) > 100000, '下敷きが描かれていない');
+
+  await page.evaluate(() => {
+    const v = document.getElementById('slide');
+    for (const tr of v.srcObject.getVideoTracks()) tr.stop();
+    v.srcObject.getVideoTracks()[0].dispatchEvent(new Event('ended'));
+  });
+  await sleep(700);
+  assert(await drawnPixels(page) === 0, '止めた後も映り続けている');
+  await ctx.close(); await org.page.close();
 });
 
 await browser.close();

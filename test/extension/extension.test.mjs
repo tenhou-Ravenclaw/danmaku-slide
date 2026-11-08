@@ -13,7 +13,7 @@ import { tmpdir } from 'node:os';
 import * as sdk from 'firebase/firestore';
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInAnonymously, connectAuthEmulator } from 'firebase/auth';
-import { createBus } from '../../public/lib/bus.mjs';
+import { createBus, createEventBus } from '../../public/lib/bus.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const EXT = join(here, '../../.ext-test');   // 本番向けの extension/ を上書きしない
@@ -58,18 +58,23 @@ const EDIT = `http://127.0.0.1:${PORT}/presentation/d/deck1/edit`;
 
 // --- エミュレータ側にトラックを作る --------------------------------------
 let seq = 0;
-async function actor(trackId) {
+async function person() {
   const app = initializeApp({ ...CONFIG, authDomain: 'localhost' }, `x${++seq}`);
   const db = sdk.initializeFirestore(app, {});
   sdk.connectFirestoreEmulator(db, '127.0.0.1', 8181);
   const auth = getAuth(app);
   connectAuthEmulator(auth, 'http://127.0.0.1:9099', { disableWarnings: true });
   const { user } = await signInAnonymously(auth);
-  return createBus(sdk, { db, trackId, uid: user.uid });
+  return { db, uid: user.uid, events: createEventBus(sdk, { db, uid: user.uid }) };
 }
-const TRACK = 'ext-track';
-const sp = await actor(TRACK);
-await sp.createTrack({ name: 'Extension Track' });
+const EVENT = 'ext-event', TRACK = 'a';
+const staff = await person();
+await staff.events.createEvent(EVENT, { name: 'Extension Event' });
+await staff.events.createTrack(EVENT, TRACK, { name: 'Extension Track' });
+const actor = async (trackId = TRACK) => {
+  const p = await person();
+  return createBus(sdk, { db: p.db, eventId: EVENT, trackId, uid: p.uid });
+};
 
 // --- 拡張を読み込んだブラウザ --------------------------------------------
 const profile = await mkdtemp(join(tmpdir(), 'danmaku-ext-'));
@@ -84,10 +89,10 @@ const sw = ctx.serviceWorkers()[0]
 const EXT_ID = new URL(sw.url()).host;
 
 /** popup を実際に操作してトラックを入れる。本番と同じ道を通す。 */
-async function setTrack(id) {
+async function setTrack(link) {
   const page = await ctx.newPage();
   await page.goto(`chrome-extension://${EXT_ID}/popup.html`);
-  await page.fill('#track', id);
+  await page.fill('#track', link);
   await page.click('#save');
   await page.waitForFunction(() => document.getElementById('msg').dataset.kind === 'ok',
     { timeout: 10000 });
@@ -105,10 +110,10 @@ await t('版にビルド時刻が入っている（古いものを見ていな�
     `版に時刻が入っていない: ${m.version_name}`);
 });
 
-await t('popup で URL を貼ってもトラックIDを拾う', async () => {
+await t('popup で運営のリンクを貼ると2つのIDを拾う', async () => {
   const page = await ctx.newPage();
   await page.goto(`chrome-extension://${EXT_ID}/popup.html`);
-  await page.fill('#track', 'https://example.test/post.html?track=fromurl');
+  await page.fill('#track', 'https://example.test/stage.html?e=evzz&t=fromurl');
   await page.click('#save');
   await page.waitForFunction(() => /fromurl/.test(document.getElementById('msg').textContent),
     { timeout: 10000 });
@@ -118,14 +123,14 @@ await t('popup で URL を貼ってもトラックIDを拾う', async () => {
 await t('popup は不正な入力を弾く', async () => {
   const page = await ctx.newPage();
   await page.goto(`chrome-extension://${EXT_ID}/popup.html`);
-  await page.fill('#track', 'a b c');
+  await page.fill('#track', 'a b c d');
   await page.click('#save');
   await page.waitForFunction(() => document.getElementById('msg').dataset.kind === 'bad',
     { timeout: 10000 });
   await page.close();
 });
 
-await setTrack(TRACK);
+await setTrack(`${EVENT} ${TRACK}`);
 
 await t('発表ページに弾幕の canvas が差し込まれる', async () => {
   const page = await ctx.newPage();
@@ -189,7 +194,7 @@ await t('投稿するとスライドの上に描かれる', async () => {
   });
   assert(before === 0, `投稿前から描かれている: ${before}`);
 
-  const po = await actor(TRACK);
+  const po = await actor();
   await po.post('拡張から流れる');
   await page.waitForFunction(() => {
     const c = document.getElementById('danmaku-slide-overlay');
@@ -324,7 +329,7 @@ await t('厳しい CSP のページでも Firestore に繋がって流れる', a
     { timeout: 15000 });
   await sleep(2000);
 
-  const po = await actor(TRACK);
+  const po = await actor();
   await po.post('CSPごしに流れる');
   try {
     await page.waitForFunction(() => {

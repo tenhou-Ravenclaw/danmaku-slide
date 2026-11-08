@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="ja" class="light">
+<meta charset="utf-8">
+<title>弾幕スライド 運営</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#ffffff">
+<link rel="stylesheet" href="./css/app.css">
+<style>
+  .lead { color: var(--muted); font-size: .9rem; margin: .2rem 0 0; }
+  h1.title { font-size: 1.6rem; font-weight: 700; }
+  h2.section { font-size: .8rem; font-weight: 600; color: var(--muted); margin: 1.5rem 0 .5rem; }
+
+  /* 一覧の行はまるごと押せる。1行1イベント。 */
+  .evrow { display: contents; }
+  table.rows tbody tr.clickable { cursor: pointer; }
+  table.rows tbody tr.clickable:hover { background: var(--surface2); }
+  .chev { color: var(--muted); text-align: right; width: 2rem; }
+
+  .done td { color: var(--muted); }
+
+  /* 詳細 */
+  .head { display: flex; flex-wrap: wrap; gap: 1rem; align-items: flex-start; }
+  .head .grow { flex: 1 1 18rem; }
+  .qrcard { display: flex; gap: .9rem; align-items: flex-start; padding: .9rem 1rem; }
+  .qrcard .slot { width: 84px; height: 84px; flex: none; display: grid; place-items: center;
+                  border: 1px dashed var(--line2); border-radius: 8px; color: var(--muted); font-size: .7rem; }
+  .qrcard .slot svg { width: 84px; height: 84px; border-radius: 6px; }
+  .emergency { padding: .9rem 1rem; border: 1px solid color-mix(in oklab, var(--bad) 35%, var(--line));
+               background: var(--bad-bg); border-radius: var(--radius); }
+  .emergency .label { font-size: .72rem; font-weight: 700; color: var(--bad); margin-bottom: .45rem; }
+
+  td.title { max-width: 22rem; }
+  td.title .t { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  td.title .s { font-size: .8rem; color: var(--muted); }
+  td.count { text-align: right; font-variant-numeric: tabular-nums; }
+  td.link { white-space: nowrap; }
+  .foot { font-size: .8rem; color: var(--muted); margin-top: .6rem; }
+  #msg { min-height: 1.4rem; font-size: .85rem; }
+  #msg[data-kind="ok"]  { color: var(--good); }
+  #msg[data-kind="bad"] { color: var(--bad); }
+</style>
+
+<div class="topbar">
+  <span class="name">弾幕スライド</span>
+  <span class="pill mute">運営</span>
+  <span class="spacer"></span>
+  <span class="muted mono" id="who"></span>
+</div>
+
+<main class="page stack">
+  <p id="msg" data-kind=""></p>
+
+  <!-- イベント一覧 -->
+  <section id="listView" class="stack hidden">
+    <div>
+      <h1 class="title">イベント</h1>
+      <p class="lead">イベントを選んでトラックを並べ、登壇者にリンクを配ります。</p>
+    </div>
+
+    <div class="card" style="padding:1rem">
+      <div class="row">
+        <label class="field grow"><span>イベント名</span>
+          <input id="newEventName" placeholder="例：学内LT大会 冬" maxlength="60" autocomplete="off"></label>
+        <label class="field" style="flex:0 1 13rem"><span>開催日</span>
+          <input id="newEventDate" type="date"></label>
+        <button id="createEvent" class="btn primary">イベントを作る</button>
+      </div>
+    </div>
+
+    <h2 class="section">これから・開催中</h2>
+    <div class="card"><table class="rows">
+      <thead><tr><th>イベント名</th><th>開催日</th><th>トラック</th><th>受付状況</th><th></th></tr></thead>
+      <tbody id="upcoming"></tbody>
+    </table></div>
+    <p id="noUpcoming" class="muted hidden" style="font-size:.85rem">まだイベントがありません。</p>
+
+    <h2 class="section">終わったイベント</h2>
+    <div class="card"><table class="rows"><tbody id="past"></tbody></table></div>
+    <p id="noPast" class="muted hidden" style="font-size:.85rem">ありません。</p>
+  </section>
+
+  <!-- イベント詳細 -->
+  <section id="detailView" class="stack hidden">
+    <a href="./organizer.html" class="btn quiet" style="justify-self:start">‹ イベント一覧</a>
+
+    <div class="head">
+      <div class="grow">
+        <h1 class="title" id="evName">—</h1>
+        <p class="lead" id="evMeta">—</p>
+      </div>
+      <div class="card qrcard">
+        <div class="slot" id="evQr">QR</div>
+        <div>
+          <div style="font-weight:600;font-size:.9rem">チラシ用QR（イベント全体）</div>
+          <div class="mono muted" id="evUrl">—</div>
+          <div class="row tight" style="margin-top:.3rem">
+            <button id="printEvQr" class="btn quiet">印刷</button>
+            <button id="copyEvUrl" class="btn quiet">URLをコピー</button>
+          </div>
+        </div>
+      </div>
+      <div class="emergency">
+        <div class="label">非常用</div>
+        <button id="stopAll" class="btn danger">全トラックの投稿を止める</button>
+      </div>
+    </div>
+
+    <div class="row" style="justify-content:space-between;align-items:flex-end;margin-top:.5rem">
+      <h2 style="font-size:1.05rem;font-weight:700">トラック</h2>
+      <span class="muted" style="font-size:.8rem">トラックのURLは当日中変わりません。登壇者が代わってもQRは貼り替え不要です。</span>
+    </div>
+
+    <div class="card"><table class="rows">
+      <thead><tr>
+        <th>トラック</th><th>いまの演題 · 登壇者</th><th>受付</th>
+        <th style="text-align:right">届いた件数</th><th>登壇者に渡すリンク</th><th></th>
+      </tr></thead>
+      <tbody id="tracks"></tbody>
+      <tfoot><tr>
+        <td colspan="6">
+          <div class="row">
+            <span class="muted" style="font-size:.85rem">トラックを足す</span>
+            <input id="newTrackName" placeholder="Track D" maxlength="40" style="flex:0 1 16rem" autocomplete="off">
+            <button id="addTrack" class="btn primary">追加</button>
+          </div>
+        </td>
+      </tr></tfoot>
+    </table></div>
+    <p class="foot">「QRを印刷」はトラック直指しのQR（部屋の入口用）。チラシには右上のイベント全体のQRを使います。</p>
+  </section>
+</main>
+
+<script type="module">
+  const msg = document.getElementById('msg');
+  const show = (m) => { msg.textContent = `エラー: ${m}`; msg.dataset.kind = 'bad'; };
+  addEventListener('error', (e) => show(e.message ?? e.error));
+  addEventListener('unhandledrejection', (e) => show(e.reason?.message ?? e.reason));
+  try {
+    const { createOrganizer } = await import('./lib/organizer.mjs');
+    window.__organizer = await createOrganizer({
+      eventId: new URLSearchParams(location.search).get('e'),
+    });
+  } catch (e) { show(e?.message ?? e); }
+</script>
+</html>

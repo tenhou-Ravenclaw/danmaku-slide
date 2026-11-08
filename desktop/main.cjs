@@ -16,9 +16,10 @@ let overlayWin = null;
 let clickThrough = true;
 let pendingTrack = null;   // リンクから渡ってきたトラック
 
-function overlayUrl(trackId) {
+function overlayUrl({ eventId, trackId }) {
   const u = new URL('/overlay.html', ORIGIN);
-  u.searchParams.set('track', trackId);
+  u.searchParams.set('e', eventId);
+  u.searchParams.set('t', trackId);
   u.searchParams.set('transparent', '1');
   u.searchParams.set('hud', '0');       // 投影に映るので既定では出さない
   return u.toString();
@@ -33,25 +34,15 @@ function overlayUrl(trackId) {
 function parseTrackId(input) {
   const s = String(input ?? '').trim();
   if (!s) return null;
-
-  if (s.startsWith('danmaku:')) {
-    try {
-      const u = new URL(s);
-      // danmaku://?track=xxx と danmaku://track/xxx の両方を受ける
-      const q = u.searchParams.get('track');
-      if (q) return valid(q);
-      const parts = `${u.hostname}${u.pathname}`.split('/').filter(Boolean);
-      const i = parts.indexOf('track');
-      const id = i >= 0 ? parts[i + 1] : parts[0];
-      return valid(id);
-    } catch { return null; }
-  }
-
   try {
-    const t = new URL(s).searchParams.get('track');
-    if (t) return valid(t);
-  } catch { /* URL でなければ ID そのものとして扱う */ }
-  return valid(s);
+    const u = new URL(s);
+    const e = u.searchParams.get('e'), t = u.searchParams.get('t');
+    if (valid(e) && valid(t)) return { eventId: e, trackId: t, code: valid(u.searchParams.get('k')) };
+  } catch { /* URL でなければ下の形を見る */ }
+  // 「イベントID トラックID」を手で貼られた場合
+  const m = s.match(/^([A-Za-z0-9_-]{1,64})[\s/]+([A-Za-z0-9_-]{1,64})$/);
+  if (m) return { eventId: m[1], trackId: m[2], code: null };
+  return null;
 }
 const valid = (s) => (/^[A-Za-z0-9_-]{1,64}$/.test(String(s ?? '')) ? String(s) : null);
 
@@ -65,13 +56,13 @@ function trackFromArgv(argv) {
  * リンクから渡ってきたトラックを設定ウィンドウに流し込む。
  * 登壇者に貼らせないためにこの経路がある。
  */
-function deliverTrack(id) {
-  if (!id) return;
-  pendingTrack = id;
+function deliverTrack(target) {
+  if (!target) return;
+  pendingTrack = target;
   if (!setupWin || setupWin.isDestroyed()) createSetupWindow();
   setupWin.show();
   setupWin.focus();
-  setupWin.webContents.send('track', id);
+  setupWin.webContents.send('track', target);
 }
 
 function createSetupWindow() {
@@ -122,10 +113,10 @@ function overlayWindowOptions(bounds) {
   };
 }
 
-function createOverlayWindow(trackId, displayId) {
+function createOverlayWindow(track, displayId) {
   const displays = screen.getAllDisplays();
-  const target = displays.find((d) => String(d.id) === String(displayId)) ?? screen.getPrimaryDisplay();
-  const { x, y, width, height } = target.bounds;
+  const display = displays.find((d) => String(d.id) === String(displayId)) ?? screen.getPrimaryDisplay();
+  const { x, y, width, height } = display.bounds;
 
   overlayWin = new BrowserWindow(overlayWindowOptions({ x, y, width, height }));
 
@@ -135,7 +126,7 @@ function createOverlayWindow(trackId, displayId) {
   // 最前面のレベルを上げてから置き直すと、画面の端まで覆える。
   overlayWin.setBounds({ x, y, width, height });
   overlayWin.setIgnoreMouseEvents(clickThrough, { forward: true });
-  overlayWin.loadURL(overlayUrl(trackId));
+  overlayWin.loadURL(overlayUrl(track));
   overlayWin.on('closed', () => { overlayWin = null; });
   return overlayWin;
 }
@@ -183,12 +174,12 @@ app.whenReady().then(() => {
   })));
 
   ipcMain.handle('start', (_e, { track, displayId }) => {
-    const id = parseTrackId(track);
-    if (!id) return { ok: false, reason: 'トラックIDかURLを入れる' };
+    const target = parseTrackId(track);
+    if (!target) return { ok: false, reason: '運営からのリンクを貼ってください' };
     overlayWin?.close();
-    createOverlayWindow(id, displayId);
+    createOverlayWindow(target, displayId);
     setupWin?.hide();
-    return { ok: true, trackId: id };
+    return { ok: true, trackId: target.trackId };
   });
 
   ipcMain.handle('stop', () => { overlayWin?.close(); setupWin?.show(); return { ok: true }; });

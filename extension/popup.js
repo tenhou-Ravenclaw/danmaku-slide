@@ -12,15 +12,20 @@ const el = (id) => document.getElementById(id);
 }
 const msg = (t, k = '') => { el('msg').textContent = t; el('msg').dataset.kind = k; };
 
-function parseTrackId(input) {
+/** 運営のリンク（?e=&t=）から2つのIDを取り出す。 */
+function parseLink(input) {
   const s = String(input ?? '').trim();
   if (!s) return null;
   try {
-    const t = new URL(s).searchParams.get('track');
-    if (t) return t;
-  } catch { /* URL でなければ ID そのもの */ }
-  return /^[A-Za-z0-9_-]{1,64}$/.test(s) ? s : null;
+    const u = new URL(s);
+    const e = u.searchParams.get('e'), t = u.searchParams.get('t');
+    if (ok(e) && ok(t)) return { eventId: e, trackId: t };
+  } catch { /* URL でなければ e/t の形を見る */ }
+  const m = s.match(/^([A-Za-z0-9_-]{1,64})[\s/]+([A-Za-z0-9_-]{1,64})$/);
+  if (m) return { eventId: m[1], trackId: m[2] };
+  return null;
 }
+const ok = (v) => typeof v === 'string' && /^[A-Za-z0-9_-]{1,64}$/.test(v);
 
 function verdict(kind, text, fix = '') {
   el('verdict').dataset.kind = kind;
@@ -86,7 +91,7 @@ async function check() {
     return;
   }
   if (res.reason === 'トラックが未設定') {
-    verdict('bad', 'トラックが未設定です', '上の欄にIDかURLを入れて保存してください');
+    verdict('bad', 'トラックが未設定です', '上の欄に運営からのリンクを貼って保存してください');
     detail(res);
     return;
   }
@@ -112,17 +117,17 @@ async function check() {
   detail(res);
 }
 
-chrome.storage.local.get('trackId').then(({ trackId }) => {
-  if (trackId) el('track').value = trackId;
+chrome.storage.local.get(['eventId', 'trackId']).then(({ eventId, trackId }) => {
+  if (eventId && trackId) el('track').value = `${eventId} ${trackId}`;
   el('track').focus();
   check();
 });
 
 async function save() {
-  const id = parseTrackId(el('track').value);
-  if (!id) { msg('トラックIDかURLを入れる', 'bad'); return; }
-  await chrome.storage.local.set({ trackId: id });
-  msg(`${id} に重ねます`, 'ok');
+  const link = parseLink(el('track').value);
+  if (!link) { msg('運営からのリンクを貼ってください', 'bad'); return; }
+  await chrome.storage.local.set(link);
+  msg(`${link.trackId} に重ねます`, 'ok');
   const tabs = await chrome.tabs.query({ url: 'https://docs.google.com/presentation/*' });
   for (const t of tabs) if (/\/present/.test(t.url ?? '')) chrome.tabs.reload(t.id);
   setTimeout(check, 2500);

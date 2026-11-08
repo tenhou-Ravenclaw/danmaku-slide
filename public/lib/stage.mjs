@@ -1,234 +1,220 @@
-// 登壇者のコントロール画面。
+// 登壇者の画面。登壇中に見るので、焦って探す要素が無い状態にする。
 //
-// 登壇者が触るのはノートPC側だけにする。プロジェクタ側の窓は、開いたあと
-// 全画面にする1クリックを除いて二度と触らない。
-// 取り込みの選択画面も、プロジェクタ側で出すと客席に映るので必ずこちらで出す。
-import { connect } from './app.mjs';
-import * as capture from './capture.mjs';
-import * as screens from './screens.mjs';
-import { QRCode } from '../vendor/lib.js';
-import { postUrlFor, overlayUrlFor } from './speaker.mjs';
+// やることは3つだけ。重ねる、開始する、止める。
+// 「投稿を止める」は荒らしへの最終手段なので、常に目に入る位置に置いたまま動かさない。
+import { start } from './app.mjs';
+import { createBus } from './bus.mjs';
+import { stageUrlFor, overlayUrlFor, ago, withEnv } from './ids.mjs';
 
-export async function createStage({ trackId }) {
+/** 運営のリンクをアプリに渡す形。アプリが入っていなければ何も起きない。 */
+export function appUrlFor(eventId, trackId, code) {
+  const u = new URL('danmaku://track');
+  u.searchParams.set('e', eventId);
+  u.searchParams.set('t', trackId);
+  if (code) u.searchParams.set('k', code);
+  return u.toString();
+}
+
+export async function createStage({ eventId, trackId, code, now = () => Date.now() } = {}) {
   const el = (id) => document.getElementById(id);
-  const stateText = el('stateText');
   const state = el('state');
 
   // Firestore はローカルに楽観適用してからサーバの判定が返るので、
   // 巻き戻しのスナップショットでエラー表示が消えないようにする。
   let stickyError = null, errorTimer = 0;
-  const say = (msg, kind = '') => {
+  const say = (text, sub = '', kind = '') => {
     if (stickyError) return;
-    stateText.textContent = msg; state.dataset.kind = kind;
+    el('stateText').textContent = text;
+    el('stateSub').textContent = sub;
+    state.dataset.kind = kind;
   };
-  const fail = (msg) => {
-    stickyError = msg; stateText.textContent = msg; state.dataset.kind = 'error';
+  const fail = (text) => {
+    stickyError = text;
+    el('stateText').textContent = text;
+    el('stateSub').textContent = '';
+    state.dataset.kind = 'error';
     clearTimeout(errorTimer);
     errorTimer = setTimeout(() => { stickyError = null; render(); }, 6000);
   };
   const clearError = () => { stickyError = null; clearTimeout(errorTimer); };
 
-  if (!trackId) { fail('トラックが指定されていない（運営からのリンクを開く）'); return null; }
+  if (!eventId || !trackId) {
+    fail('リンクが正しくありません（運営からのリンクを開く）');
+    return null;
+  }
 
-  let bus;
-  try { bus = await connect(trackId); }
-  catch (e) { fail(`つながらない: ${e.code ?? e.message}`); return null; }
+  const { uid, db, sdk } = await start();
+  const bus = createBus(sdk, { db, eventId, trackId, uid, now });
+
+  // 運営のリンクに合言葉が付いていれば、このトラックの登壇者として登録する。
+  // 失敗しても読むことはできるので、黙って続ける。
+  if (code) {
+    try { await bus.claim(code); }
+    catch { /* すでに登録済みか、合言葉が古い */ }
+  }
 
   let track = null;
-  let stream = null;
-  let projector = null;      // プロジェクタ側の窓
-  let projectorApi = null;   // その窓の弾幕
   let received = 0;
-
-  // --- 手順の進み具合 ---------------------------------------------------
-  function steps() {
-    const done = {
-      s1: stream !== null,
-      s2: projector !== null && !projector.closed,
-      s3: projectorApi !== null,
-      s4: false,
-    };
-    const order = ['s1', 's2', 's3', 's4'];
-    let now = order.find((k) => !done[k]) ?? null;
-    for (const k of order) {
-      el(k).dataset.state = done[k] ? 'done' : (k === now ? 'now' : '');
-    }
-    el('pick').textContent = stream ? 'スライドを選び直す' : 'スライドを取り込む';
-    el('pick').classList.toggle('primary', !stream);
-    el('project').disabled = !stream || (projector && !projector.closed);
-    el('project').classList.toggle('primary', !!stream && !(projector && !projector.closed));
-    el('closeProj').classList.toggle('hidden', !(projector && !projector.closed));
-  }
-
-  function render() {
-    if (!track) { say('トラックが見つからない', 'error'); return; }
-    el('stop').classList.toggle('hidden', track.stopped);
-    el('resume').classList.toggle('hidden', !track.stopped);
-    const where = projector && !projector.closed ? ' · 投影中' : '';
-    if (track.stopped) say(`${track.name} · 投稿を止めている${where}`, 'stopped');
-    else say(`${track.name}${track.title ? ' · ' + track.title : ''} · 受付中${where}`, 'live');
-    steps();
-  }
-
-  bus.watchTrack((t) => { track = t; render(); if (t) paintQr(); },
-    (e) => fail(`読めない: ${e.code ?? e.message}`));
-
-  // --- 届いているコメント ------------------------------------------------
+  let lastAt = null;
+  let appConnected = false;
   const seen = new Set();
-  function addToFeed(text) {
-    const li = document.createElement('li');
-    li.textContent = text;
-    el('feed').prepend(li);
-    while (el('feed').children.length > 60) el('feed').lastElementChild.remove();
-    el('count').textContent = String(++received);
-  }
-  function watchComments(startedAt) {
-    bus.watchComments(startedAt, (c, { isBacklog }) => {
-      if (seen.has(c.id)) return;
-      seen.add(c.id);
-      if (!isBacklog) addToFeed(c.text);
-    }, (e) => fail(`購読できない: ${e.code ?? e.message}`));
-  }
-  bus.getTrack().then((snap) => {
-    if (snap.exists()) watchComments(snap.data().sessionStartedAt);
-  });
 
-  // --- ① スライドを取り込む ---------------------------------------------
-  const REASON = {
-    unsupported: 'このブラウザは画面の取り込みに対応していない。Chrome か Edge で開く',
-    cancelled: '選ばれなかった。もう一度押す',
-    none: '取り込めるものが無かった',
-    failed: '取り込めなかった',
-  };
-  el('pick').addEventListener('click', async () => {
-    el('pick').disabled = true;
-    try {
-      const next = await capture.pickSlide();
-      capture.stop(stream);
-      stream = next;
+  el('openApp').href = appUrlFor(eventId, trackId, code);
+  el('browserWay').href = withEnv(`${overlayUrlFor(eventId, trackId)}&capture=1`);
 
-      // タブを取り込むと Chrome が共有バーをページ内に描くので、それごと映る。
-      // ウィンドウか画面なら映らない。
-      const surface = capture.surfaceOf(stream);
-      el('setupHint').textContent = surface === 'browser'
-        ? 'タブを選ぶと上に共有バーが映ります。「ウィンドウ」か「画面全体」を選び直すと消えます'
-        : '';
-      capture.onEnded(stream, () => {
-        stream = null;
-        el('setupHint').textContent = 'スライドの取り込みが止まった。もう一度取り込む';
-        steps();
-      });
-      // すでに投影中なら、開き直さずに差し替える
-      projectorApi?.adoptStream(stream);
-    } catch (e) {
-      el('setupHint').textContent = REASON[e.kind] ?? REASON.failed;
-    } finally {
-      el('pick').disabled = false;
-      steps();
+  // --- 画面の出し分け ---------------------------------------------------
+  function render() {
+    if (!track) { say('トラックが見つかりません', '', 'error'); return; }
+
+    el('trackName').textContent = track.name;
+    el('eventName').textContent = eventNameText;
+
+    const started = Boolean(track.title) && !track.stopped;
+    el('beforeStart').classList.toggle('hidden', started);
+    el('afterStart').classList.toggle('hidden', !started);
+    el('step2').dataset.state = started ? 'done' : (appConnected ? 'now' : '');
+    el('step1').dataset.state = appConnected ? 'done' : 'now';
+    el('appOk').classList.toggle('hidden', !appConnected);
+
+    if (started) {
+      el('nowTitle').textContent = track.title;
+      el('nowMeta').textContent =
+        [track.speaker, startedAtText()].filter(Boolean).join(' · ');
     }
-  });
 
-  // --- ② プロジェクタに出す ---------------------------------------------
-  let screenList = [];
+    el('stopBtn').classList.toggle('hidden', track.stopped);
+    el('resumeBtn').classList.toggle('hidden', !track.stopped);
+
+    if (track.stopped) say('停止中', '投稿は拒否されています', 'stopped');
+    else say('受付中', lastAt ? `最後のコメント ${ago(lastAt, now())}` : 'まだ届いていません', 'live');
+  }
+
+  function startedAtText() {
+    const ms = track?.sessionStartedAt?.toMillis?.();
+    if (!ms) return '';
+    const d = new Date(ms);
+    return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')} 開始`;
+  }
+
+  let eventNameText = '';
   (async () => {
-    if (!screens.isSupported()) return;
-    const r = await screens.listScreens();
-    if (r.screens.length < 2) return;
-    screenList = r.screens;
-    const sel = el('screen');
-    sel.classList.remove('hidden');
-    for (const s of screenList) {
-      const o = document.createElement('option');
-      o.value = String(s.index);
-      o.textContent = s.label;
-      o.selected = !s.raw.isPrimary;   // 既定で投影先を選んでおく
-      sel.append(o);
-    }
+    try {
+      const snap = await sdk.getDoc(sdk.doc(db, 'events', eventId));
+      eventNameText = snap.exists() ? (snap.data().name ?? '') : '';
+      render();
+    } catch { /* 名前が出ないだけなので続ける */ }
   })();
 
-  // 子の窓から「準備できた」と呼ばれる
-  window.__projectorReady = (api, win) => {
-    projectorApi = api;
-    if (stream) api.adoptStream(stream);
-    win.addEventListener('pagehide', () => { projectorApi = null; steps(); });
-    steps();
-  };
+  // --- 購読 -------------------------------------------------------------
+  let unwatchComments = null;
+  let sessionKey = null;
 
-  /**
-   * 投影窓の URL を組み立てる。
-   * いまの画面に付いているクエリのうち、接続先を決めるものは引き継ぐ。
-   * 引き継がないと、親がエミュレータで子が本番、という食い違いが起きる。
-   */
-  function projectorUrl() {
-    const u = new URL(overlayUrlFor(trackId));
-    const here = new URLSearchParams(location.search);
-    for (const key of ['emu']) {
-      const v = here.get(key);
-      if (v !== null) u.searchParams.set(key, v);
-    }
-    u.searchParams.set('stage', '1');
-    u.searchParams.set('hud', '0');
-    return u.toString();
+  bus.watchTrack((t) => {
+    track = t;
+    if (!t) { fail(`トラックが見つかりません: ${trackId}`); return; }
+    if (t.sessionStartedAt) watchSession(t.sessionStartedAt);
+    render();
+  }, (e) => fail(`読めない: ${e.code ?? e.message}`));
+
+  function watchSession(startedAt) {
+    const key = startedAt?.toMillis?.() ?? String(startedAt);
+    if (key === sessionKey) return;
+    sessionKey = key;
+    unwatchComments?.();
+    // 登壇が切り替わったら手元の一覧も切り替える
+    seen.clear();
+    received = 0;
+    lastAt = null;
+    el('feed').replaceChildren();
+    el('count').textContent = '0';
+    el('feedEmpty').classList.remove('hidden');
+
+    unwatchComments = bus.watchComments(startedAt, (c) => {
+      if (seen.has(c.id)) return;
+      seen.add(c.id);
+      addToFeed(c);
+    }, (e) => fail(`購読できない: ${e.code ?? e.message}`));
   }
 
-  el('project').addEventListener('click', () => {
-    const target = screenList[Number(el('screen').value)]?.raw;
-    const url = projectorUrl();
-    const features = target
-      ? `left=${target.availLeft},top=${target.availTop},width=${target.availWidth},height=${target.availHeight}`
-      : 'width=1280,height=720';
-    projector = window.open(url, 'danmaku-projector', features);
-    if (!projector) { el('setupHint').textContent = 'ポップアップがブロックされた。このサイトを許可する'; return; }
-    el('setupHint').textContent = screenList.length
-      ? '開いた窓を1回クリックすると全画面になる'
-      : '開いた窓をプロジェクタ側へ動かして、1回クリックすると全画面になる';
-    const poll = setInterval(() => {
-      if (projector?.closed) { clearInterval(poll); projectorApi = null; steps(); }
-    }, 800);
-    steps();
+  function addToFeed(c) {
+    const ms = c.createdAt?.toMillis?.() ?? now();
+    lastAt = Math.max(lastAt ?? 0, ms);
+    received++;
+    el('count').textContent = String(received);
+    el('feedEmpty').classList.add('hidden');
+
+    const li = document.createElement('li');
+    const at = document.createElement('span');
+    at.className = 'at';
+    at.dataset.at = String(ms);
+    at.textContent = ago(ms, now());
+    const tx = document.createElement('span');
+    tx.className = 'tx';
+    // コメントは外から来る。textContent で入れる。
+    tx.textContent = c.text;
+    li.append(at, tx);
+    el('feed').prepend(li);
+    while (el('feed').children.length > 80) el('feed').lastElementChild.remove();
+    render();
+  }
+
+  // 相対時刻は放っておくと古いまま。毎秒書き換える。
+  const ticker = setInterval(() => {
+    const t = now();
+    for (const at of el('feed').querySelectorAll('.at')) {
+      at.textContent = ago(Number(at.dataset.at), t);
+    }
+    if (track && !track.stopped && lastAt) {
+      el('stateSub').textContent = `最後のコメント ${ago(lastAt, t)}`;
+    }
+  }, 1000);
+
+  // --- 操作 -------------------------------------------------------------
+  el('startBtn').addEventListener('click', async () => {
+    el('startBtn').disabled = true;
+    try {
+      await bus.startSession({
+        title: el('title').value.trim() || '（演題なし）',
+        speaker: el('speaker').value.trim(),
+      });
+      clearError();
+    } catch (e) { fail(`開始できない: ${e.code ?? e.message}`); }
+    finally { el('startBtn').disabled = false; }
   });
 
-  el('closeProj').addEventListener('click', () => { projector?.close(); projectorApi = null; steps(); });
+  el('endBtn').addEventListener('click', async () => {
+    el('endBtn').disabled = true;
+    try { await bus.endSession(); clearError(); }
+    catch (e) { fail(`終えられない: ${e.code ?? e.message}`); }
+    finally { el('endBtn').disabled = false; }
+  });
 
-  // --- 停止 -------------------------------------------------------------
-  el('stop').addEventListener('click', async () => {
-    el('stop').disabled = true;
+  el('stopBtn').addEventListener('click', async () => {
+    el('stopBtn').disabled = true;
     try { await bus.stop(); clearError(); }
     catch (e) { fail(`止められない: ${e.code ?? e.message}`); }
-    finally { el('stop').disabled = false; }
+    finally { el('stopBtn').disabled = false; }
   });
-  el('resume').addEventListener('click', async () => {
-    el('resume').disabled = true;
+
+  el('resumeBtn').addEventListener('click', async () => {
+    el('resumeBtn').disabled = true;
     try { await bus.resume(); clearError(); }
     catch (e) { fail(`再開できない: ${e.code ?? e.message}`); }
-    finally { el('resume').disabled = false; }
+    finally { el('resumeBtn').disabled = false; }
   });
 
-  // --- リハーサル -------------------------------------------------------
-  el('testSend').addEventListener('click', async () => {
-    el('testSend').disabled = true;
-    try { await bus.post(el('testText').value); clearError(); }
-    catch (e) { el('setupHint').textContent = `流せない: ${e.kind ?? e.message}`; }
-    finally { el('testSend').disabled = false; }
+  // アプリが開いたかどうかは直接は分からない。
+  // 弾幕ページを開いたという合図を受け取って、手順1を完了にする。
+  addEventListener('message', (e) => {
+    if (e.origin !== location.origin) return;
+    if (e.data?.type === 'danmaku:overlay-ready') { appConnected = true; render(); }
   });
 
-  // --- 配布 -------------------------------------------------------------
-  let painted = false;
-  async function paintQr() {
-    if (painted) return;
-    painted = true;
-    const url = postUrlFor(trackId);
-    el('postUrl').textContent = url;
-    el('qrSlot').innerHTML = await QRCode.toString(url,
-      { type: 'svg', errorCorrectionLevel: 'M', margin: 2, width: 140 });
-  }
-  el('copy').addEventListener('click', async () => {
-    try { await navigator.clipboard.writeText(postUrlFor(trackId)); say('コピーした', 'live'); }
-    catch { fail('コピーできなかった'); }
-  });
-  el('openPost').addEventListener('click', () => window.open(postUrlFor(trackId), '_blank', 'noopener'));
-
-  steps();
-  return { bus, trackId, get hasSlide() { return stream !== null; },
-           get isProjecting() { return !!(projector && !projector.closed); } };
+  render();
+  return {
+    bus, eventId, trackId,
+    get received() { return received; },
+    get track() { return track; },
+    stop() { clearInterval(ticker); unwatchComments?.(); },
+  };
 }

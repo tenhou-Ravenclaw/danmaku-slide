@@ -30,6 +30,7 @@ for (const m of testMode) {
 const invariants = [
   ['認証必須の判定',                      'request.auth != null'],
   ['作成時の ownerUid の固定',            'request.resource.data.ownerUid == request.auth.uid'],
+  ['トラックを作れるのは運営だけ',        'get(eventPath()).data.ownerUid == request.auth.uid'],
   ['レート制限（同一バッチの posters 更新の強制）', 'getAfter('],
   ['2秒のクールダウン',                   "duration.value(2, 's')"],
   ['createdAt のサーバ時刻強制',          'request.resource.data.createdAt == request.time'],
@@ -37,6 +38,7 @@ const invariants = [
   ['引き継ぎコードの読み取り禁止',        'allow read: if false'],
   ['コメントの追記専用',                  'allow update, delete: if false'],
   ['ownerUid の書き換え禁止',             'request.resource.data.ownerUid == resource.data.ownerUid'],
+  ['createdAt の書き換え禁止',            'request.resource.data.createdAt == resource.data.createdAt'],
   ['更新できるフィールドの限定',          'affectedKeys()'],
 ];
 for (const [label, needle] of invariants) {

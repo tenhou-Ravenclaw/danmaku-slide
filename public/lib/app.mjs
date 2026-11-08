@@ -11,7 +11,7 @@ let started = null;
 
 /**
  * 初期化して匿名サインインまで済ませる。何度呼んでも1回しか走らない。
- * @returns {Promise<{ uid: string, db: unknown }>}
+ * @returns {Promise<{ uid: string, db: unknown, sdk: unknown }>}
  */
 export function start() {
   if (started) return started;
@@ -34,15 +34,15 @@ export function start() {
     }
 
     const { user } = await sdk.signInAnonymously(auth);
-    return { uid: user.uid, db };
+    return { uid: user.uid, db, sdk };
   })();
   return started;
 }
 
 /** 起動して、そのトラック用の bus を返す。 */
-export async function connect(trackId) {
+export async function connect(eventId, trackId) {
   const { uid, db } = await start();
-  return createBus(sdk, { db, trackId, uid });
+  return createBus(sdk, { db, eventId, trackId, uid });
 }
 
 export { sdk };

@@ -6,37 +6,33 @@ service cloud.firestore {
     // 匿名認証でも authed() は true。観客にも匿名サインインを入れる前提。
     function authed() { return request.auth != null; }
 
-    match /tracks/{trackId} {
+    match /events/{eventId} {
 
-      function trackPath() { return /databases/$(db)/documents/tracks/$(trackId); }
+      function eventPath() { return /databases/$(db)/documents/events/$(eventId); }
 
-      // トラックを操作できるのは、作成者本人か、引き継ぎコードで登録された運用者。
-      function isOperator() {
+      // イベントを操作できるのは、作成者本人か、引き継ぎコードで登録された運用者。
+      function isEventOperator() {
         return authed() && (
           resource.data.ownerUid == request.auth.uid ||
-          exists(/databases/$(db)/documents/tracks/$(trackId)/operators/$(request.auth.uid))
+          exists(/databases/$(db)/documents/events/$(eventId)/operators/$(request.auth.uid))
         );
       }
 
       allow get: if authed();
-      allow list: if authed() && request.query.limit <= 20;
+      allow list: if authed() && request.query.limit <= 50;
 
       allow create: if authed()
-        && request.resource.data.keys().hasOnly(
-             ['name','title','speaker','sessionStartedAt','stopped','ownerUid','createdAt'])
+        && request.resource.data.keys().hasOnly(['name','heldOn','ownerUid','createdAt'])
         && request.resource.data.ownerUid == request.auth.uid
         && request.resource.data.name is string
         && request.resource.data.name.size() > 0
-        && request.resource.data.name.size() <= 40
-        && request.resource.data.stopped == false
+        && request.resource.data.name.size() <= 60
         && request.resource.data.createdAt == request.time;
 
-      // ownerUid と createdAt は後から書き換えられない。触れるのは運用4フィールドだけ。
-      allow update: if isOperator()
+      allow update: if isEventOperator()
         && request.resource.data.ownerUid == resource.data.ownerUid
         && request.resource.data.createdAt == resource.data.createdAt
-        && request.resource.data.diff(resource.data).affectedKeys()
-             .hasOnly(['title','speaker','sessionStartedAt','stopped']);
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name','heldOn']);
 
       allow delete: if authed() && resource.data.ownerUid == request.auth.uid;
 
@@ -44,49 +40,103 @@ service cloud.firestore {
       match /private/{doc} {
         allow read: if false;
         allow write: if authed()
-          && get(trackPath()).data.ownerUid == request.auth.uid;
+          && get(eventPath()).data.ownerUid == request.auth.uid;
       }
 
-      // スタッフ運用時、登壇者がコードを提示して自分を運用者に登録する。
+      // 運営を手伝う人。イベント単位で登録する。
       match /operators/{uid} {
         allow read: if false;
         allow create: if authed()
           && uid == request.auth.uid
           && request.resource.data.keys().hasOnly(['code'])
           && request.resource.data.code ==
-               get(/databases/$(db)/documents/tracks/$(trackId)/private/handoff).data.code;
+               get(/databases/$(db)/documents/events/$(eventId)/private/handoff).data.code;
         allow update, delete: if false;
       }
 
-      match /comments/{commentId} {
+      match /tracks/{trackId} {
+
+        function trackPath() {
+          return /databases/$(db)/documents/events/$(eventId)/tracks/$(trackId);
+        }
+
+        // トラックは運営のもの。登壇者は引き継ぎコードで運用者になる。
+        function isTrackOperator() {
+          return authed() && (
+            get(eventPath()).data.ownerUid == request.auth.uid ||
+            exists(/databases/$(db)/documents/events/$(eventId)/operators/$(request.auth.uid)) ||
+            exists(/databases/$(db)/documents/events/$(eventId)/tracks/$(trackId)/operators/$(request.auth.uid))
+          );
+        }
+
         allow get: if authed();
         allow list: if authed() && request.query.limit <= 50;
 
         allow create: if authed()
-          && request.resource.data.keys().hasOnly(['text','createdAt'])
-          && request.resource.data.text is string
-          && request.resource.data.text.size() > 0
-          && request.resource.data.text.size() <= 60
-          && request.resource.data.createdAt == request.time
-          && get(trackPath()).data.stopped == false
-          // 同じバッチで posters/{uid} も更新されていることを要求する = レート制限の強制
-          && getAfter(/databases/$(db)/documents/tracks/$(trackId)/posters/$(request.auth.uid))
-               .data.lastPostAt == request.time;
+          && get(eventPath()).data.ownerUid == request.auth.uid
+          && request.resource.data.keys().hasOnly(
+               ['name','title','speaker','sessionStartedAt','stopped','createdAt'])
+          && request.resource.data.name is string
+          && request.resource.data.name.size() > 0
+          && request.resource.data.name.size() <= 40
+          && request.resource.data.stopped == false
+          && request.resource.data.createdAt == request.time;
 
-        allow update, delete: if false;
-      }
+        // createdAt は後から書き換えられない。触れるのは運用4フィールドだけ。
+        allow update: if isTrackOperator()
+          && request.resource.data.createdAt == resource.data.createdAt
+          && request.resource.data.diff(resource.data).affectedKeys()
+               .hasOnly(['title','speaker','sessionStartedAt','stopped']);
 
-      // 投稿者ごとの最終投稿時刻。2秒に1回しか更新できない。
-      match /posters/{uid} {
-        allow read: if false;
-        allow create: if authed() && uid == request.auth.uid
-          && request.resource.data.keys().hasOnly(['lastPostAt'])
-          && request.resource.data.lastPostAt == request.time;
-        allow update: if authed() && uid == request.auth.uid
-          && request.resource.data.keys().hasOnly(['lastPostAt'])
-          && request.resource.data.lastPostAt == request.time
-          && request.time > resource.data.lastPostAt + duration.value(2, 's');
-        allow delete: if false;
+        allow delete: if authed() && get(eventPath()).data.ownerUid == request.auth.uid;
+
+        // 登壇者に渡すリンクの合言葉。誰からも読めない。
+        match /private/{doc} {
+          allow read: if false;
+          allow write: if authed()
+            && get(eventPath()).data.ownerUid == request.auth.uid;
+        }
+
+        match /operators/{uid} {
+          allow read: if false;
+          allow create: if authed()
+            && uid == request.auth.uid
+            && request.resource.data.keys().hasOnly(['code'])
+            && request.resource.data.code ==
+                 get(/databases/$(db)/documents/events/$(eventId)/tracks/$(trackId)/private/handoff).data.code;
+          allow update, delete: if false;
+        }
+
+        match /comments/{commentId} {
+          allow get: if authed();
+          allow list: if authed() && request.query.limit <= 50;
+
+          allow create: if authed()
+            && request.resource.data.keys().hasOnly(['text','createdAt'])
+            && request.resource.data.text is string
+            && request.resource.data.text.size() > 0
+            && request.resource.data.text.size() <= 60
+            && request.resource.data.createdAt == request.time
+            && get(trackPath()).data.stopped == false
+            // 同じバッチで posters/{uid} も更新されていることを要求する = レート制限の強制
+            && getAfter(/databases/$(db)/documents/events/$(eventId)/tracks/$(trackId)/posters/$(request.auth.uid))
+                 .data.lastPostAt == request.time;
+
+          allow update, delete: if false;
+        }
+
+        // 投稿者ごとの最終投稿時刻。2秒に1回しか更新できない。
+        match /posters/{uid} {
+          allow read: if false;
+          allow create: if authed() && uid == request.auth.uid
+            && request.resource.data.keys().hasOnly(['lastPostAt'])
+            && request.resource.data.lastPostAt == request.time;
+          allow update: if authed() && uid == request.auth.uid
+            && request.resource.data.keys().hasOnly(['lastPostAt'])
+            && request.resource.data.lastPostAt == request.time
+            && request.time > resource.data.lastPostAt + duration.value(2, 's');
+          allow delete: if false;
+        }
       }
     }
   }

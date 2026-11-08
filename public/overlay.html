@@ -122,7 +122,8 @@
       canvas: document.getElementById('stage'),
       video: document.getElementById('slide'),
       hud,
-      trackId: q.get('track'),
+      eventId: q.get('e'),
+      trackId: q.get('t'),
     });
     window.__overlay = overlay;
     mountBar(overlay, { autoPick: q.get('capture') === '1' });

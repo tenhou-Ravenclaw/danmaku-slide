@@ -76,8 +76,8 @@ async function main() {
     return true;
   });
 
-  const { trackId } = await chrome.storage.local.get('trackId');
-  if (!trackId) {
+  const { eventId, trackId } = await chrome.storage.local.get(['eventId', 'trackId']);
+  if (!eventId || !trackId) {
     answerReports(() => ({ presenting: true, reason: 'トラックが未設定' }));
     status('トラックが未設定。拡張のアイコンから設定する', false);
     console.info('[弾幕スライド] トラックが未設定。拡張のアイコンから設定する');
@@ -173,7 +173,7 @@ async function main() {
     sdk.connectAuthEmulator(auth, 'http://127.0.0.1:9099', { disableWarnings: true });
   }
   const { user } = await sdk.signInAnonymously(auth);
-  const bus = createBus(sdk, { db, trackId, uid: user.uid });
+  const bus = createBus(sdk, { db, eventId, trackId, uid: user.uid });
 
   let unwatch = null;
   let sessionKey = null;
