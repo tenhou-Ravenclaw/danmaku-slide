@@ -77,9 +77,8 @@ async function person(staff = false) {
 const EVENT = 'ext-event', TRACK = 'a';
 const staff = await person(true);
 await staff.events.createEvent(EVENT, { name: 'Extension Event' });
+// 作った時点で受付中なので、ここで開ける操作は要らない
 await staff.events.createTrack(EVENT, TRACK, { name: 'Extension Track' });
-// 開始していないトラックには投稿できない
-await createBus(sdk, { db: staff.db, eventId: EVENT, trackId: TRACK, uid: staff.uid }).open();
 const actor = async (trackId = TRACK) => {
   const p = await person();
   return createBus(sdk, { db: p.db, eventId: EVENT, trackId, uid: p.uid });

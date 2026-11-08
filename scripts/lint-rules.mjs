@@ -43,7 +43,7 @@ const invariants = [
   ['更新できるフィールドの限定',          'affectedKeys()'],
   ['トラックで動くのは受付の可否だけ',    "hasOnly(['stopped'])"],
   ['受付の開け閉めは運営だけ',            'allow update: if isEventStaff()'],
-  ['トラックは受付前で作られる',          'request.resource.data.stopped == true'],
+  ['トラックの形は固定',                  "hasOnly(['name','stopped','createdAt'])"],
   ['受付中でなければ受け付けない',        'get(trackPath()).data.stopped == false'],
   // 登壇者に書き込む先を残さない。合言葉が何も開けない状態で残るのを防ぐ。
 ];

@@ -95,8 +95,6 @@ await t('投稿が購読側に届く', async () => {
   const staff = evBus('staff7');
   await staff.createEvent('ev-post', { name: 'イベント' });
   await staff.createTrack('ev-post', 'a', { name: 'Track A' });
-  await bus('staff7', 'ev-post', 'a').open();   // 受付前は投稿できない
-
   const watcher = bus('staff7', 'ev-post', 'a');
   await once((cb, err) => watcher.watchTrack(cb, err));
   const seen = [];
@@ -115,7 +113,6 @@ await t('最初のスナップショットは backlog として区別される',
   const staff = evBus('staff8');
   await staff.createEvent('ev-backlog', { name: 'イベント' });
   await staff.createTrack('ev-backlog', 'a', { name: 'Track A' });
-  await bus('staff8', 'ev-backlog', 'a').open();
   const watcher = bus('staff8', 'ev-backlog', 'a');
   await once((cb, err) => watcher.watchTrack(cb, err));
   await bus('po2', 'ev-backlog', 'a').post('さき');
@@ -133,7 +130,6 @@ await t('溜まっていた分は backlog 扱いで、あとから来た分と�
   await staff.createEvent('ev-session', { name: 'イベント' });
   await staff.createTrack('ev-session', 'a', { name: 'Track A' });
   const sp = bus('staff9', 'ev-session', 'a');
-  await sp.open();
   await bus('po3', 'ev-session', 'a').post('さっきの分');
   await sleep(400);
 
@@ -190,7 +186,8 @@ await t('サーバに弾かれたら手元の時刻は進めない', async () =>
 });
 
 // --- 受付の開け閉め -----------------------------------------------------
-await t('作ったばかりのトラックには投稿できない', async () => {
+await t('作ったばかりのトラックにそのまま送れる', async () => {
+  // 開け忘れで本番中に止まるほうが損害が大きいので、動いている側を既定にする。
   const staff = evBus('staffA');
   await staff.createEvent('ev-fresh', { name: 'イベント' });
   await staff.createTrack('ev-fresh', 'a', { name: 'Track A' });
@@ -198,9 +195,8 @@ await t('作ったばかりのトラックには投稿できない', async () =>
   const un = po.watchTrack(() => {});
   await sleep(400);
   un();
-  assert(po.isStopped === true, '受付前になっていない');
-  try { await po.post('まだ'); throw new Error('通った'); }
-  catch (e) { assert(e.kind === 'stopped', `kind=${e.kind}`); }
+  assert(po.isStopped === false, '作った直後に止まっている');
+  await po.post('そのまま送れる');
 });
 
 await t('運営が開けると送れて、止めると送れなくなる', async () => {
@@ -208,7 +204,6 @@ await t('運営が開けると送れて、止めると送れなくなる', async
   await staff.createEvent('ev-stop', { name: 'イベント' });
   await staff.createTrack('ev-stop', 'a', { name: 'Track A' });
   const sp = bus('staffStop', 'ev-stop', 'a');
-  await sp.open();
   await sleep(300);
   await bus('poStop0', 'ev-stop', 'a').post('開いている');
 
@@ -229,7 +224,6 @@ await t('止めて開け直しても観客は再スキャンしなくていい',
   await staff.createEvent('ev-next', { name: 'イベント' });
   await staff.createTrack('ev-next', 'a', { name: 'Track A' });
   const sp = bus('staffB', 'ev-next', 'a');
-  await sp.open();
   const po = bus('poB', 'ev-next', 'a');
   const un = po.watchTrack(() => {});
   await sleep(300);

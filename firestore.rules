@@ -88,8 +88,9 @@ service cloud.firestore {
           && request.resource.data.name is string
           && request.resource.data.name.size() > 0
           && request.resource.data.name.size() <= 40
-          // 作った直後は受付前。前日に用意した QR が当日まで生きてしまうのを避ける。
-          && request.resource.data.stopped == true
+          // 既定は受付中。どちらで作るかは運営の道具の側で決める。
+          // ここで縛るのは形だけにする。
+          && request.resource.data.stopped is bool
           && request.resource.data.createdAt == request.time;
 
         /*

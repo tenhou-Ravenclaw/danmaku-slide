@@ -69,12 +69,16 @@ export function createEventBus(sdk, { db, uid }) {
     /**
      * トラックを足す。作れるのはイベントの owner だけ（Rules で縛っている）。
      *
-     * 受付前（stopped）で作る。前日に用意しておいた QR が
-     * その場から生きてしまうのは困る。開けるのは当日、運営が決める。
+     * 受付中で作る。
+     *
+     * 止めた状態で作ると、運営が開け忘れたときに本番中に観客が投稿できない。
+     * いちばん困るときに、いちばん気づきにくい形で壊れる。
+     * 開催前に誰かが投げ込んでも紛れ込むのは数件で、運営は「止める」で閉じられる。
+     * 失敗の重さが釣り合わないので、動いている側を既定にする。
      */
     createTrack(eventId, trackId, { name }) {
       return setDoc(doc(db, 'events', eventId, 'tracks', trackId), {
-        name, stopped: true, createdAt: serverTimestamp(),
+        name, stopped: false, createdAt: serverTimestamp(),
       });
     },
 

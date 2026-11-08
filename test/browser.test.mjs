@@ -128,14 +128,12 @@ async function makeEventInBrowser(name, trackNames = ['Track A'], heldOn = '2026
 }
 
 /**
- * イベントとトラックを作り、受付を開ける。
+ * イベントとトラックを作る。作った時点で受付中なので、そのまま投稿できる。
  *
- * 作ったばかりのトラックは受付前なので、投稿まわりを見たいテストはここから始める。
- * 開けるのは運営。登壇者には押す場所が無い。
+ * makeEventInBrowser との違いは、受付中になるまで待つところだけ。
  */
 async function makeLiveEvent(name, trackNames = ['Track A'], scheme = null) {
   const org = await makeEventInBrowser(name, trackNames, '2026-12-12', scheme);
-  await org.page.click('#openAll');
   await org.page.waitForFunction(
     (want) => document.querySelectorAll('#tracks .pill.good').length === want,
     trackNames.length, { timeout: 25000 });
@@ -414,18 +412,35 @@ await t('登壇者の画面に状態を変える操作が無い', async () => {
   await page.close(); await org.page.close();
 });
 
-await t('受付前は投稿できず、運営が開けると送れる', async () => {
-  const org = await makeEventInBrowser('受付前の会', ['Track A']);
+await t('作ったらすぐ送れる（運営の開け忘れで止まらない）', async () => {
+  // 止めた状態で作ると、開け忘れたときに本番中に観客が投稿できない。
+  // いちばん困るときに、いちばん気づきにくい形で壊れる。
+  const org = await makeEventInBrowser('できたての会', ['Track A']);
+  const po = await open(`${HOST}/post.html?emu=1&e=${org.eventId}&t=a`);
+  await po.page.waitForFunction(
+    () => /受付中/.test(document.getElementById('title')?.textContent ?? ''), { timeout: 20000 });
+  await po.page.fill('#text', 'もう送れる');
+  await po.page.waitForFunction(() => !document.getElementById('send').disabled, { timeout: 20000 });
+  await po.page.click('#send');
+  await po.page.waitForFunction(
+    () => /送信しました/.test(document.getElementById('note')?.textContent ?? ''), { timeout: 20000 });
+  await po.page.close(); await org.page.close();
+});
+
+await t('全トラックを止めてから、まとめて開け直せる', async () => {
+  const org = await makeLiveEvent('開け直しの会', ['Track A', 'Track B']);
+  await org.page.click('#stopAll');
+  await org.page.waitForFunction(
+    () => document.querySelectorAll('#tracks .pill.bad').length === 2, { timeout: 20000 });
   const po = await open(`${HOST}/post.html?emu=1&e=${org.eventId}&t=a`);
   await po.page.waitForFunction(
     () => /受付を待っています/.test(document.getElementById('title')?.textContent ?? ''),
     { timeout: 20000 });
-  await po.page.fill('#text', 'まだ早い');
+  await po.page.fill('#text', 'いまは無理');
   await po.page.waitForTimeout(400);
-  assert(await po.page.isDisabled('#send'), '受付前なのに押せる');
+  assert(await po.page.isDisabled('#send'), '止めたのに押せる');
 
-  await org.page.locator('#tracks tr').nth(0).locator('.btn.resume').click();
-
+  await org.page.click('#openAll');
   await po.page.waitForFunction(
     () => /受付中/.test(document.getElementById('title')?.textContent ?? ''), { timeout: 20000 });
   await po.page.waitForFunction(() => !document.getElementById('send').disabled, { timeout: 20000 });

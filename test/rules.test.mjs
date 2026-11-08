@@ -82,13 +82,16 @@ await t('EV 匿名ではイベントを消せない', () => assertFails(deleteDo
 
 // --- TR: トラック -------------------------------------------------------
 await t('TR 運営はトラックを作れる', () => assertSucceeds(setDoc(doc(asStaff('staff'), 'events/ev1/tracks/tNew'), {
-  name: 'Track D', stopped: true, createdAt: serverTimestamp() })));
+  name: 'Track D', stopped: false, createdAt: serverTimestamp() })));
 await t('TR 運営以外はトラックを作れない',
   () => assertFails(setDoc(doc(asStaff('attacker'), 'events/ev1/tracks/tBad'), {
-    name: 'Track X', stopped: true, createdAt: serverTimestamp() })));
-await t('TR 作成時から受付中にはできない（前日のQRが生きてしまう）',
-  () => assertFails(setDoc(doc(asStaff('staff'), 'events/ev1/tracks/tOpen'), {
-    name: 'Track O', stopped: false, createdAt: serverTimestamp() })));
+    name: 'Track X', stopped: false, createdAt: serverTimestamp() })));
+await t('TR 止めた状態で作ることもできる（どちらで作るかは道具が決める）',
+  () => assertSucceeds(setDoc(doc(asStaff('staff'), 'events/ev1/tracks/tShut'), {
+    name: 'Track S', stopped: true, createdAt: serverTimestamp() })));
+await t('TR stopped は bool でなければ作れない',
+  () => assertFails(setDoc(doc(asStaff('staff'), 'events/ev1/tracks/tBadType'), {
+    name: 'Track T', stopped: 'no', createdAt: serverTimestamp() })));
 await t('TR 関係ない人は stopped を書けない',
   () => assertFails(updateDoc(doc(as('attacker'), 'events/ev1/tracks/tA'), { stopped: true })));
 
@@ -107,12 +110,12 @@ await t('TR 他人はトラックを消せない',
 
 await t('TR 匿名ではトラックを作れない',
   () => assertFails(setDoc(doc(as('staff'), 'events/ev1/tracks/tAnon'), {
-    name: 'Track Anon', stopped: true, createdAt: serverTimestamp() })));
+    name: 'Track Anon', stopped: false, createdAt: serverTimestamp() })));
 await t('TR 匿名ではトラックを消せない',
   () => assertFails(deleteDoc(doc(as('staff'), 'events/ev1/tracks/tStopped'))));
 await t('TR 運営はトラックを消せる', async () => {
   await assertSucceeds(setDoc(doc(asStaff('staff'), 'events/ev1/tracks/tDel'), {
-    name: 'Track Del', stopped: true, createdAt: serverTimestamp() }));
+    name: 'Track Del', stopped: false, createdAt: serverTimestamp() }));
   await assertSucceeds(deleteDoc(doc(asStaff('staff'), 'events/ev1/tracks/tDel')));
 });
 
@@ -212,11 +215,11 @@ await t('T4 トラック一覧は 50 まで通る',
 
 // --- 受付前・停止中 -----------------------------------------------------
 await t('ST 停止中のトラックには投稿できない', () => assertFails(post(as('p8'), 'tStopped', 'p8', 'late')));
-await t('ST 作ったばかりのトラックにも投稿できない', async () => {
-  // 受付前（stopped）で作られるので、運営が開けるまでは誰も送れない
+await t('ST 作ったばかりのトラックには送れる', async () => {
+  // 受付中で作られる。運営が開け忘れて本番で止まるほうが損害が大きい。
   await assertSucceeds(setDoc(doc(asStaff('staff'), 'events/ev1/tracks/tFresh'), {
-    name: 'Track Fresh', stopped: true, createdAt: serverTimestamp() }));
-  await assertFails(post(as('p9'), 'tFresh', 'p9', 'まだ'));
+    name: 'Track Fresh', stopped: false, createdAt: serverTimestamp() }));
+  await assertSucceeds(post(as('p9'), 'tFresh', 'p9', 'もう送れる'));
 });
 await t('ST 停止済みでも履歴は読める',
   () => assertSucceeds(getDocs(query(collection(as('r1'), 'events/ev1/tracks/tStopped/comments'), limit(50)))));
