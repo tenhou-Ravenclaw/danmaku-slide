@@ -4,6 +4,7 @@
   "type": "module",
   "scripts": {
     "config": "node scripts/gen-config.mjs",
+    "review": "node scripts/review.mjs",
     "dev": "firebase emulators:start",
     "lint:rules": "node scripts/lint-rules.mjs",
     "lint:secrets": "gitleaks git . --redact --verbose --no-banner",
