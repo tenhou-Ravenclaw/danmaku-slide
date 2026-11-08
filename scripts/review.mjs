@@ -5,7 +5,7 @@
 import { spawnSync } from 'node:child_process';
 
 const steps = [
-  ['純粋ロジック（50件）',     'npm', ['run', '--silent', 'test:unit']],
+  ['純粋ロジック（62件）',     'npm', ['run', '--silent', 'test:unit']],
   ['透過シェル（21件）',       'npm', ['run', '--silent', 'test:shell']],
   ['Rules の不変条件と生成物', 'npm', ['run', '--silent', 'lint:rules']],
   ['秘密情報（履歴）',         'npm', ['run', '--silent', 'lint:secrets']],
@@ -13,7 +13,7 @@ const steps = [
   ['開発依存の脆弱性',         'npm', ['audit', '--audit-level=high']],
   ['Security Rules（42件）',   'npm', ['run', '--silent', 'test:rules']],
   ['Firestore 境界（14件）',   'npm', ['run', '--silent', 'test:bus']],
-  ['実ブラウザ（36件）',       'npm', ['run', '--silent', 'test:browser']],
+  ['実ブラウザ（38件）',       'npm', ['run', '--silent', 'test:browser']],
 ];
 
 const results = [];

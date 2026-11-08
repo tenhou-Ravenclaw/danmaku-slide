@@ -56,7 +56,14 @@ export class Renderer {
     ctx.clearRect(0, 0, w, h);
 
     if (backdrop?.source && backdrop.width > 0 && backdrop.height > 0) {
-      ctx.drawImage(backdrop.source, backdrop.x, backdrop.y, backdrop.width, backdrop.height);
+      const c = backdrop.crop;
+      if (c && c.width > 0 && c.height > 0) {
+        // 取り込んだ枠の中から、中身のある範囲だけを切り出して敷く
+        ctx.drawImage(backdrop.source, c.x, c.y, c.width, c.height,
+          backdrop.x, backdrop.y, backdrop.width, backdrop.height);
+      } else {
+        ctx.drawImage(backdrop.source, backdrop.x, backdrop.y, backdrop.width, backdrop.height);
+      }
     }
 
     for (const it of items) {

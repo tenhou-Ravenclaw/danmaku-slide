@@ -15,6 +15,10 @@ export function createOverlay({ canvas, hud, video = null, trackId, capturing = 
   // 貼り方B（キャプチャ合成）のための状態。使わないときは触らない。
   let stream = null;
   let backdrop = null;
+  let crop = null;          // 取り込んだ枠のうち、中身がある範囲
+  let probe = null;         // 余白検出のための縮小用 canvas
+  let lastProbeAt = 0;
+  let autoCrop = true;
 
   let unwatchTrack = null;
   let unwatchComments = null;
@@ -34,10 +38,11 @@ export function createOverlay({ canvas, hud, video = null, trackId, capturing = 
     // 最後のフレームが残って videoWidth > 0 のままになり、止めたはずの
     // スライドが固まって映り続ける。
     if (stream && video && video.videoWidth > 0) {
+      if (autoCrop) updateCrop(tMs);
+      const src = crop ?? { x: 0, y: 0, width: video.videoWidth, height: video.videoHeight };
       // 画面の大きさもスライドの大きさも変わり得るので、毎フレーム出し直す
-      const fit = capture.fitRect(video.videoWidth, video.videoHeight,
-        window.innerWidth, window.innerHeight);
-      backdrop = { source: video, ...fit };
+      const fit = capture.fitRect(src.width, src.height, window.innerWidth, window.innerHeight);
+      backdrop = { source: video, crop: src, ...fit };
     }
     renderer.draw(flow.step(tMs), backdrop);
     if (state.dropped !== flow.dropped) {
@@ -45,6 +50,31 @@ export function createOverlay({ canvas, hud, video = null, trackId, capturing = 
       paintHud();
     }
     raf = requestAnimationFrame(frame);
+  }
+
+  /**
+   * 余白を測り直す。毎フレームやる必要はないし、重い。
+   * スライドが切り替わっても余白は変わらないので、1秒に1回で足りる。
+   */
+  function updateCrop(tMs) {
+    if (tMs - lastProbeAt < 1000 && crop) return;
+    lastProbeAt = tMs;
+    try {
+      if (!probe) probe = document.createElement('canvas');
+      const W = 160;
+      const H = Math.max(2, Math.round(W * video.videoHeight / video.videoWidth));
+      probe.width = W; probe.height = H;
+      const pctx = probe.getContext('2d', { willReadFrequently: true });
+      pctx.drawImage(video, 0, 0, W, H);
+      const r = capture.detectContentRect(pctx.getImageData(0, 0, W, H));
+      const sx = video.videoWidth / W, sy = video.videoHeight / H;
+      crop = {
+        x: Math.round(r.x * sx), y: Math.round(r.y * sy),
+        width: Math.round(r.width * sx), height: Math.round(r.height * sy),
+      };
+    } catch {
+      crop = null;   // 測れなくても描画は続ける
+    }
   }
 
   function paintHud() {
@@ -128,7 +158,7 @@ export function createOverlay({ canvas, hud, video = null, trackId, capturing = 
       await capture.attach(stream, video);
       capture.onEnded(stream, () => {
         // 共有を止められた。黙って黒くしない。
-        stream = null; backdrop = null;
+        stream = null; backdrop = null; crop = null;
         video.srcObject = null;   // 最後のフレームを残さない
         state.status = 'スライドの取り込みが止まった';
         paintHud();
@@ -159,7 +189,7 @@ export function createOverlay({ canvas, hud, video = null, trackId, capturing = 
     stream = next;
     await capture.attach(stream, video);
     capture.onEnded(stream, () => {
-      stream = null; backdrop = null; video.srcObject = null;
+      stream = null; backdrop = null; crop = null; video.srcObject = null;
       state.status = 'スライドの取り込みが止まった';
       paintHud();
       onCaptureChange?.(false);
@@ -173,6 +203,7 @@ export function createOverlay({ canvas, hud, video = null, trackId, capturing = 
     capture.stop(stream);
     stream = null;
     backdrop = null;
+    crop = null;
     if (video) video.srcObject = null;   // 最後のフレームを残さない
     onCaptureChange?.(false);
     paintHud();
@@ -184,6 +215,10 @@ export function createOverlay({ canvas, hud, video = null, trackId, capturing = 
   return {
     flow, renderer,
     pickSlide, dropSlide, adoptStream,
+    /** 余白の自動切り取り。うまく切れないスライドのために切れるようにしておく。 */
+    setAutoCrop(on) { autoCrop = on; if (!on) crop = null; lastProbeAt = 0; },
+    get autoCrop() { return autoCrop; },
+    get cropRect() { return crop; },
     get hasSlide() { return stream !== null; },
     onCaptureChange(fn) { onCaptureChange = fn; },
     screens,

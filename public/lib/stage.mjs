@@ -106,12 +106,18 @@ export async function createStage({ trackId }) {
       const next = await capture.pickSlide();
       capture.stop(stream);
       stream = next;
+
+      // タブを取り込むと Chrome が共有バーをページ内に描くので、それごと映る。
+      // ウィンドウか画面なら映らない。
+      const surface = capture.surfaceOf(stream);
+      el('setupHint').textContent = surface === 'browser'
+        ? 'タブを選ぶと上に共有バーが映ります。「ウィンドウ」か「画面全体」を選び直すと消えます'
+        : '';
       capture.onEnded(stream, () => {
         stream = null;
         el('setupHint').textContent = 'スライドの取り込みが止まった。もう一度取り込む';
         steps();
       });
-      el('setupHint').textContent = '';
       // すでに投影中なら、開き直さずに差し替える
       projectorApi?.adoptStream(stream);
     } catch (e) {

@@ -744,6 +744,44 @@ await t('取り込んだスライドがプロジェクタ側の窓に渡り、�
   await ctx.close();
 });
 
+await t('取り込んだ映像の余白を切り取って広く映す', async () => {
+  const { page, ctx } = await openCapturing(`${HOST}/overlay.html?emu=1&track=${TRACK}`);
+  await page.waitForFunction(
+    () => /Browser Track/.test(document.getElementById('hud')?.textContent ?? ''),
+    { timeout: 20000 });
+  await page.evaluate(() => document.getElementById('pick').click());
+  await page.waitForFunction(() => document.getElementById('slide').videoWidth > 0, { timeout: 20000 });
+  await sleep(1600);   // 余白の測り直しは1秒に1回
+
+  const r = await page.evaluate(() => ({
+    crop: window.__overlay.cropRect,
+    vw: document.getElementById('slide').videoWidth,
+    vh: document.getElementById('slide').videoHeight,
+    auto: window.__overlay.autoCrop,
+  }));
+  assert(r.auto === true, '自動切り取りが無効になっている');
+  assert(r.crop !== null, '余白を測っていない');
+  // 擬似ソースは余白が無いので、枠いっぱいが返るのが正しい
+  assert(r.crop.width === r.vw && r.crop.height === r.vh,
+    `余白が無いのに切っている: ${JSON.stringify(r.crop)} vs ${r.vw}x${r.vh}`);
+  await ctx.close();
+});
+
+await t('自動切り取りは切れる', async () => {
+  const { page, ctx } = await openCapturing(`${HOST}/overlay.html?emu=1&track=${TRACK}`);
+  await page.waitForFunction(
+    () => /Browser Track/.test(document.getElementById('hud')?.textContent ?? ''),
+    { timeout: 20000 });
+  await page.evaluate(() => document.getElementById('pick').click());
+  await page.waitForFunction(() => document.getElementById('slide').videoWidth > 0, { timeout: 20000 });
+  await sleep(1600);
+  await page.evaluate(() => window.__overlay.setAutoCrop(false));
+  await sleep(300);
+  assert(await page.evaluate(() => window.__overlay.cropRect) === null, '切り取りが残っている');
+  assert(await page.evaluate(() => window.__overlay.autoCrop) === false);
+  await ctx.close();
+});
+
 await browser.close();
 await capBrowser.close();
 for (const [st, name, msg] of rows) console.log(`  ${st} ${name}${msg ? '\n         -> ' + msg : ''}`);
