@@ -176,6 +176,130 @@ await t('ウィンドウサイズを変えると行数が追従する', async ()
   await page.close();
 });
 
+// --- 投稿ページ ---------------------------------------------------------
+await t('投稿ページは開いた時点で入力欄にフォーカスが当たる', async () => {
+  const { page, errors } = await open(`${HOST}/post.html?emu=1&track=${TRACK}`);
+  await page.waitForFunction(
+    () => /Browser Track/.test(document.getElementById('where')?.textContent ?? ''),
+    { timeout: 15000 });
+  const focused = await page.evaluate(() => document.activeElement?.id);
+  assert(focused === 'text', `フォーカス=${focused}`);
+  assert(errors.length === 0, `エラー: ${errors.join(' / ')}`);
+  await page.close();
+});
+
+await t('文字数が出て、空のうちは送れない', async () => {
+  const { page } = await open(`${HOST}/post.html?emu=1&track=${TRACK}`);
+  await page.waitForFunction(() => document.getElementById('send') !== null);
+  assert(await page.isDisabled('#send'), '空なのに押せる');
+  assert((await page.textContent('#count')) === '0 / 60', await page.textContent('#count'));
+  await page.fill('#text', 'あいうえお');
+  await page.waitForFunction(() => document.getElementById('count').textContent === '5 / 60');
+  await page.waitForFunction(() => !document.getElementById('send').disabled);
+  await page.close();
+});
+
+await t('60文字を超える入力は打てない（UI 側でも止める）', async () => {
+  const { page } = await open(`${HOST}/post.html?emu=1&track=${TRACK}`);
+  await page.waitForFunction(() => document.getElementById('text') !== null);
+  await page.fill('#text', 'あ'.repeat(80));
+  const len = await page.evaluate(() => document.getElementById('text').value.length);
+  assert(len === 60, `maxlength が効いていない: ${len}`);
+  await page.close();
+});
+
+await t('投稿すると入力欄が空になり、続けて打てる', async () => {
+  const { page, errors } = await open(`${HOST}/post.html?emu=1&track=${TRACK}`);
+  await page.waitForFunction(
+    () => /Browser Track/.test(document.getElementById('where')?.textContent ?? ''),
+    { timeout: 15000 });
+  await page.fill('#text', 'ブラウザから送る');
+  await page.click('#send');
+  await page.waitForFunction(() => document.getElementById('text').value === '', { timeout: 15000 });
+  assert((await page.textContent('#note')) === '送った', await page.textContent('#note'));
+  const focused = await page.evaluate(() => document.activeElement?.id);
+  assert(focused === 'text', `送信後のフォーカス=${focused}`);
+  assert(errors.length === 0, `エラー: ${errors.join(' / ')}`);
+  await page.close();
+});
+
+await t('連投するとボタンに残り秒数が出る（無言で押せなくしない）', async () => {
+  const { page } = await open(`${HOST}/post.html?emu=1&track=${TRACK}`);
+  await page.waitForFunction(
+    () => /Browser Track/.test(document.getElementById('where')?.textContent ?? ''),
+    { timeout: 15000 });
+  await page.fill('#text', 'いちど');
+  await page.click('#send');
+  await page.waitForFunction(() => document.getElementById('text').value === '', { timeout: 15000 });
+
+  await page.fill('#text', 'にかいめ');
+  await page.waitForFunction(() => /秒待つ/.test(document.getElementById('send').textContent), { timeout: 5000 });
+  assert(await page.isDisabled('#send'), '待機中なのに押せる');
+  await page.close();
+});
+
+await t('停止中のトラックでは理由が出て押せない', async () => {
+  const t3 = 'browser-stopped';
+  const sp = await actor(t3);
+  await sp.createTrack({ name: 'Stopped Track' });
+  await sp.stop();
+
+  const { page } = await open(`${HOST}/post.html?emu=1&track=${t3}`);
+  await page.waitForFunction(
+    () => /もう終わって/.test(document.getElementById('note')?.textContent ?? ''),
+    { timeout: 15000 });
+  await page.fill('#text', 'まだ送れる？');
+  await page.waitForFunction(() => document.getElementById('send').disabled, { timeout: 5000 });
+  await page.close();
+});
+
+await t('存在しないトラックなら理由が出る', async () => {
+  const { page } = await open(`${HOST}/post.html?emu=1&track=no-such-track`);
+  await page.waitForFunction(
+    () => /存在しない/.test(document.getElementById('where')?.textContent ?? ''),
+    { timeout: 15000 });
+  await page.close();
+});
+
+await t('トラック未指定なら QR を読み直すよう出す', async () => {
+  const { page } = await open(`${HOST}/post.html?emu=1`);
+  await page.waitForFunction(
+    () => /QRコード/.test(document.getElementById('note')?.textContent ?? ''),
+    { timeout: 10000 });
+  await page.close();
+});
+
+// --- 一連の流れ ---------------------------------------------------------
+await t('投稿ページから送ったものが弾幕ページに流れる（通し）', async () => {
+  const t4 = 'browser-e2e';
+  const sp = await actor(t4);
+  await sp.createTrack({ name: 'E2E Track', title: '通し確認' });
+
+  const overlay = await open(`${HOST}/overlay.html?emu=1&track=${t4}`);
+  await overlay.page.waitForFunction(
+    () => /E2E Track/.test(document.getElementById('hud')?.textContent ?? ''),
+    { timeout: 15000 });
+  assert(await drawnPixels(overlay.page) === 0, '最初から描かれている');
+
+  const post = await open(`${HOST}/post.html?emu=1&track=${t4}`);
+  await post.page.waitForFunction(
+    () => /E2E Track/.test(document.getElementById('where')?.textContent ?? ''),
+    { timeout: 15000 });
+  await post.page.fill('#text', '通しで流れた');
+  await post.page.click('#send');
+  await post.page.waitForFunction(() => document.getElementById('text').value === '', { timeout: 15000 });
+
+  await overlay.page.waitForFunction(
+    () => (window.__overlay?.flow?.activeCount ?? 0) > 0, { timeout: 20000 });
+  await sleep(300);
+  const n = await drawnPixels(overlay.page);
+  assert(n > 500, `描かれたピクセルが少なすぎる: ${n}`);
+  assert(overlay.errors.length === 0, `弾幕側のエラー: ${overlay.errors.join(' / ')}`);
+  assert(post.errors.length === 0, `投稿側のエラー: ${post.errors.join(' / ')}`);
+  await post.page.close();
+  await overlay.page.close();
+});
+
 await browser.close();
 for (const [st, name, msg] of rows) console.log(`  ${st} ${name}${msg ? '\n         -> ' + msg : ''}`);
 console.log(`\n${pass} passed, ${fail} failed`);

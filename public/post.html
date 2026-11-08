@@ -1,0 +1,89 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>弾幕を送る</title>
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0b0b0f">
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #0b0b0f; --surface: #15151d; --line: #2a2a38;
+    --ink: #e8e8ef; --muted: #8a8a99;
+    --accent: #6f8cff; --warn: #ffc46b; --bad: #ff8f8f;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; background: var(--bg); color: var(--ink);
+    font: 16px/1.6 -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Noto Sans JP", sans-serif; }
+  body { display: flex; flex-direction: column;
+    padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
+
+  header { padding: 1.25rem 1.25rem .5rem; }
+  h1 { margin: 0; font-size: .8rem; font-weight: 600; letter-spacing: .08em;
+       text-transform: uppercase; color: var(--muted); }
+  #where { margin: .15rem 0 0; font-size: 1.05rem; font-weight: 600; }
+
+  main { flex: 1; display: flex; flex-direction: column; justify-content: flex-end;
+         gap: .75rem; padding: 1.25rem; }
+
+  .field { position: relative; }
+  /* 16px 未満だと iOS が勝手に拡大する。拡大すると送信ボタンが画面外へ出る */
+  textarea {
+    width: 100%; min-height: 5.5rem; resize: none;
+    padding: .9rem 1rem 1.9rem; border-radius: .75rem;
+    background: var(--surface); color: var(--ink);
+    border: 1px solid var(--line); font: inherit; font-size: 1rem;
+  }
+  textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; border-color: transparent; }
+  #count { position: absolute; right: .75rem; bottom: .6rem;
+           font-size: .75rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+  #count[data-state="over"] { color: var(--bad); }
+
+  button {
+    width: 100%; padding: .95rem; border: 0; border-radius: .75rem;
+    background: var(--accent); color: #0b0b12; font: inherit; font-weight: 700;
+    cursor: pointer; transition: opacity .15s;
+  }
+  button:disabled { opacity: .4; cursor: default; }
+
+  #note { min-height: 1.4rem; margin: 0; font-size: .85rem; color: var(--muted); }
+  #note[data-state="ok"]   { color: var(--accent); }
+  #note[data-state="wait"] { color: var(--warn); }
+  #note[data-state="bad"]  { color: var(--bad); }
+</style>
+
+<header>
+  <h1>弾幕を送る</h1>
+  <p id="where">接続中…</p>
+</header>
+
+<main>
+  <p id="note" data-state=""></p>
+  <div class="field">
+    <textarea id="text" maxlength="60" rows="3" enterkeyhint="send"
+      placeholder="コメントを書く" autocomplete="off" autocapitalize="off"></textarea>
+    <span id="count" data-state="">0 / 60</span>
+  </div>
+  <button id="send" disabled>送る</button>
+</main>
+
+<script type="module">
+  const note = document.getElementById('note');
+  const say = (msg, state = '') => { note.textContent = msg; note.dataset.state = state; };
+  addEventListener('error', (e) => say(`エラー: ${e.message ?? e.error}`, 'bad'));
+  addEventListener('unhandledrejection', (e) => say(`エラー: ${e.reason?.message ?? e.reason}`, 'bad'));
+
+  try {
+    const { createPoster } = await import('./lib/poster.mjs');
+    await createPoster({
+      trackId: new URLSearchParams(location.search).get('track'),
+      els: {
+        where: document.getElementById('where'),
+        text: document.getElementById('text'),
+        count: document.getElementById('count'),
+        send: document.getElementById('send'),
+        note,
+      },
+    });
+  } catch (e) {
+    say(`エラー: ${e?.message ?? e}`, 'bad');
+  }
+</script>
