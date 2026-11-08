@@ -11,3 +11,4 @@ ui-debug.log
 # firebase apps:sdkconfig からの生成物（npm run config で作り直す）
 .firebase-config.json
 public/firebase-config.js
+public/vendor/

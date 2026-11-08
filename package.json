@@ -4,20 +4,23 @@
   "type": "module",
   "scripts": {
     "config": "node scripts/gen-config.mjs",
+    "build": "node scripts/build.mjs",
     "review": "node scripts/review.mjs",
     "dev": "firebase emulators:start",
     "lint:rules": "node scripts/lint-rules.mjs",
     "lint:secrets": "gitleaks git . --redact --verbose --no-banner",
     "test:unit": "node --test test/unit/",
+    "test:bus": "firebase emulators:exec --only firestore --project bus-lab 'node test/bus.test.mjs'",
     "lint": "npm run lint:rules && npm run lint:secrets",
     "test:rules": "firebase emulators:exec --only firestore --project danmaku-slide-test 'node test/rules.test.mjs'",
     "test:e2e": "node test/e2e.mjs",
     "deploy:rules": "firebase deploy --only firestore:rules",
-    "deploy": "firebase deploy --only hosting,firestore:rules",
-    "preview": "firebase hosting:channel:deploy preview --expires 7d"
+    "deploy": "npm run build && firebase deploy --only hosting,firestore:rules",
+    "preview": "npm run build && firebase hosting:channel:deploy preview --expires 7d"
   },
   "devDependencies": {
     "@firebase/rules-unit-testing": "^6.0.0",
+    "esbuild": "^0.28.2",
     "firebase": "^13.2.0",
     "firebase-tools": "^15.35.0"
   },
