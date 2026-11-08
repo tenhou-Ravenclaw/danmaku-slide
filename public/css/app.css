@@ -1,15 +1,24 @@
-/* 役割で見る状況が違うので、明るい面と暗い面を分ける。
-   運営は事前に落ち着いて使う（明）。登壇者と観客は本番中に見る（暗）。 */
+/* 配色。
+ *
+ * 端末の設定に従う。3つの状態があることに注意する。
+ *   明るいを選んだ   → <html data-theme="light">
+ *   暗いを選んだ     → <html data-theme="dark">
+ *   任せている（既定）→ 何も付かない。prefers-color-scheme だけが頼り
+ *
+ * 素の :root に明るい側を全部書き、暗い側は上書きだけを3箇所に書く。
+ * どれか1つでも欠けると、片方の文字をもう片方の地に載せることになる。
+ *
+ * 投影される画面（弾幕本体）だけは端末設定に従わない。
+ * 客席から見えるものなので、常に暗いまま固定する。
+ */
 
 :root {
   --radius: 10px;
   --font: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Noto Sans JP", "Yu Gothic", sans-serif;
   --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
-}
 
-/* --- 明るい面（運営） --------------------------------------------------- */
-.light {
-  color-scheme: light;
+  color-scheme: light dark;
+
   --bg: #f4f6f8;
   --surface: #ffffff;
   --surface2: #f8fafc;
@@ -17,7 +26,7 @@
   --line2: #cdd4de;
   --ink: #111826;
   --ink2: #44506a;
-  --muted: #71809a;
+  --muted: #5a6478;
   --accent: #1f44c8;
   --accent-ink: #ffffff;
   --good: #0b7a4b;
@@ -28,8 +37,30 @@
   --bad-bg: #fdecea;
 }
 
-/* --- 暗い面（登壇者・観客） --------------------------------------------- */
-.dark {
+/* 任せている人の暗い側。明るいを選んだ人には当てない。 */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0b0d12;
+    --surface: #14171f;
+    --surface2: #1b1f29;
+    --line: #262b36;
+    --line2: #3a4252;
+    --ink: #e8ebf2;
+    --ink2: #aab3c4;
+    --muted: #8a94a8;
+    --accent: #7f9bff;
+    --accent-ink: #0b0d12;
+    --good: #5fd39a;
+    --good-bg: rgba(95, 211, 154, .14);
+    --warn: #ffc46b;
+    --warn-bg: rgba(255, 196, 107, .14);
+    --bad: #ff7b7b;
+    --bad-bg: rgba(255, 123, 123, .14);
+  }
+}
+
+/* 明示的に暗いを選んだ人。端末が明るくてもこちらが勝つ。 */
+:root[data-theme="dark"] {
   color-scheme: dark;
   --bg: #0b0d12;
   --surface: #14171f;
@@ -38,15 +69,39 @@
   --line2: #3a4252;
   --ink: #e8ebf2;
   --ink2: #aab3c4;
-  --muted: #76809a;
-  --accent: #5b7cff;
+  --muted: #8a94a8;
+  --accent: #7f9bff;
   --accent-ink: #0b0d12;
   --good: #5fd39a;
   --good-bg: rgba(95, 211, 154, .14);
   --warn: #ffc46b;
   --warn-bg: rgba(255, 196, 107, .14);
-  --bad: #ff6b6b;
-  --bad-bg: rgba(255, 107, 107, .14);
+  --bad: #ff7b7b;
+  --bad-bg: rgba(255, 123, 123, .14);
+}
+
+:root[data-theme="light"] { color-scheme: light; }
+
+/* 投影される画面は端末設定に従わない。客席から見えるものなので固定する。 */
+:root.projected,
+:root.projected[data-theme="light"] {
+  color-scheme: dark;
+  --bg: #0b0d12;
+  --surface: #14171f;
+  --surface2: #1b1f29;
+  --line: #262b36;
+  --line2: #3a4252;
+  --ink: #e8ebf2;
+  --ink2: #aab3c4;
+  --muted: #8a94a8;
+  --accent: #7f9bff;
+  --accent-ink: #0b0d12;
+  --good: #5fd39a;
+  --good-bg: rgba(95, 211, 154, .14);
+  --warn: #ffc46b;
+  --warn-bg: rgba(255, 196, 107, .14);
+  --bad: #ff7b7b;
+  --bad-bg: rgba(255, 123, 123, .14);
 }
 
 * { box-sizing: border-box; }

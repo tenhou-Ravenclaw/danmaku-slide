@@ -23,8 +23,8 @@ PR を立てる前に全部通す。
 ```bash
 npm run config        # 初回と Firebase 設定の変更時だけ
 npm run lint          # 不変条件ガード + 秘密情報スキャン（CI と同じもの）
-npm run test:rules    # Security Rules（エミュレータ / 42件）
-npm run test:e2e      # Security Rules（本番 / 27件）
+npm run test:rules    # Security Rules（エミュレータ / 56件）
+npm run test:e2e      # Security Rules（本番 / 15件）
 ```
 
 `lint:secrets` には gitleaks が必要（`brew install gitleaks`）。

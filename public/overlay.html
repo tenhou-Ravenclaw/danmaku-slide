@@ -2,6 +2,7 @@
 <meta charset="utf-8">
 <title>弾幕スライド</title>
 <meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="stylesheet" href="./css/app.css">
 <style>
   /*
    * 透過は html に当てる。body だけに当てると html の背景が残って黒く見える。
@@ -110,6 +111,8 @@
   addEventListener('error', (e) => show(e.message ?? e.error));
   addEventListener('unhandledrejection', (e) => show(e.reason?.message ?? e.reason));
 
+  // 客席から見えるものなので、端末の設定に関係なく暗いまま固定する
+  document.documentElement.classList.add('projected');
   const q = new URLSearchParams(location.search);
   if (q.get('transparent') === '1') document.documentElement.classList.add('transparent');
   if (q.get('hud') === '0') document.documentElement.classList.add('no-hud');

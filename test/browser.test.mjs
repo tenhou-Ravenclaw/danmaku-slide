@@ -54,8 +54,11 @@ const capBrowser = await chromium.launch({
  * 同じ ctx を渡すと同じ匿名ユーザーになる。渡さないと別人になるので、
  * 運営が作ったイベントを別人として開くことになり、本来の流れと変わる。
  */
-async function open(url, { b = browser, ctx = null } = {}) {
-  const context = ctx ?? await b.newContext({ viewport: { width: 1280, height: 800 } });
+async function open(url, { b = browser, ctx = null, scheme = null } = {}) {
+  const context = ctx ?? await b.newContext({
+    viewport: { width: 1280, height: 800 },
+    ...(scheme ? { colorScheme: scheme } : {}),
+  });
   const page = await context.newPage();
   const errors = [];
   page.on('pageerror', (e) => errors.push(String(e.message)));
@@ -424,6 +427,83 @@ await t('ブラウザ側で共有を止めても固まったまま映らない',
   await sleep(700);
   assert(await drawnPixels(page) === 0, '止めた後も映り続けている');
   await ctx.close(); await org.page.close();
+});
+
+// --- 配色 ---------------------------------------------------------------
+/** 文字と地のコントラスト比。WCAG の式。 */
+function contrast(a, b) {
+  const lum = (c) => {
+    const [r, g, bl] = c.map((v) => {
+      const x = v / 255;
+      return x <= 0.03928 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4;
+    });
+    return 0.2126 * r + 0.7152 * g + 0.0722 * bl;
+  };
+  const [l1, l2] = [lum(a), lum(b)].sort((x, y) => y - x);
+  return (l1 + 0.05) / (l2 + 0.05);
+}
+const rgb = (s) => s.match(/\d+/g).slice(0, 3).map(Number);
+
+/** その画面の主な文字が地から十分浮いているか。 */
+async function readable(page, selectors) {
+  const got = await page.evaluate((sels) => sels.map((sel) => {
+    const el = document.querySelector(sel);
+    if (!el) return null;
+    const c = getComputedStyle(el);
+    let bgEl = el, bg = c.backgroundColor;
+    while (bgEl && (bg === 'rgba(0, 0, 0, 0)' || bg === 'transparent')) {
+      bgEl = bgEl.parentElement;
+      bg = bgEl ? getComputedStyle(bgEl).backgroundColor : 'rgb(255,255,255)';
+    }
+    return { sel, fg: c.color, bg };
+  }), selectors);
+  return got.filter(Boolean);
+}
+
+for (const scheme of ['light', 'dark']) {
+  await t(`運営の画面が ${scheme} で読める`, async () => {
+    const r = await open(`${HOST}/organizer.html?emu=1`, { scheme });
+    await r.page.waitForSelector('#newEventName', { state: 'visible', timeout: 20000 });
+    const pairs = await readable(r.page, ['h1.title', '.lead', 'h2.section', '#createEvent']);
+    assert(pairs.length === 4, `要素が足りない: ${pairs.length}`);
+    for (const { sel, fg, bg } of pairs) {
+      const ratio = contrast(rgb(fg), rgb(bg));
+      assert(ratio >= 4.5, `${sel} のコントラストが低い: ${ratio.toFixed(2)} (${fg} / ${bg})`);
+    }
+    // 地が端末の設定に合っているか
+    const bodyBg = await r.page.evaluate(() => getComputedStyle(document.body).backgroundColor);
+    const light = contrast(rgb(bodyBg), [0, 0, 0]) > contrast(rgb(bodyBg), [255, 255, 255]);
+    assert(light === (scheme === 'light'), `${scheme} なのに地が逆: ${bodyBg}`);
+    assert(r.errors.length === 0, `エラー: ${r.errors.join(' / ')}`);
+    await r.page.close();
+  });
+
+  await t(`投稿ページが ${scheme} で読める`, async () => {
+    const org = await makeEventInBrowser(`配色の会 ${scheme}`, ['Track A']);
+    const r = await open(`${HOST}/post.html?emu=1&e=${org.eventId}&t=a`, { scheme });
+    await r.page.waitForFunction(
+      () => /Track A/.test(document.getElementById('track')?.textContent ?? ''), { timeout: 20000 });
+    await r.page.fill('#text', 'よめるか');
+    await r.page.waitForFunction(() => !document.getElementById('send').disabled, { timeout: 10000 });
+    for (const { sel, fg, bg } of await readable(r.page, ['#track', '#title', '#text', '#send'])) {
+      const ratio = contrast(rgb(fg), rgb(bg));
+      assert(ratio >= 4.0, `${sel} のコントラストが低い: ${ratio.toFixed(2)} (${fg} / ${bg})`);
+    }
+    await r.page.close(); await org.page.close();
+  });
+}
+
+await t('弾幕本体は端末が明るくても暗いまま', async () => {
+  // 客席から見えるものなので、端末の設定に従わせない
+  const org = await makeEventInBrowser('投影の会', ['Track A']);
+  const r = await open(`${HOST}/overlay.html?emu=1&e=${org.eventId}&t=a`, { scheme: 'light' });
+  await r.page.waitForFunction(
+    () => /Track A/.test(document.getElementById('hud')?.textContent ?? ''), { timeout: 20000 });
+  const bg = await r.page.evaluate(() => getComputedStyle(document.body).backgroundColor);
+  assert(contrast(rgb(bg), [255, 255, 255]) > 4, `明るい地になっている: ${bg}`);
+  assert(await r.page.evaluate(() => document.documentElement.classList.contains('projected')),
+    'projected が付いていない');
+  await r.page.close(); await org.page.close();
 });
 
 await browser.close();
