@@ -321,15 +321,62 @@ await t('リンクが不完全なら理由が出る', async () => {
   await page.close();
 });
 
-await t('登壇者ページは手順1から始まる', async () => {
+await t('登壇者ページは「まだ流していない」から始まる', async () => {
   const org = await makeEventInBrowser('手順の会', ['Track A']);
   const { page, errors } = await open(await speakerLink(org.page));
   await page.waitForFunction(
     () => /受付中|停止中/.test(document.getElementById('stateText')?.textContent ?? ''), { timeout: 20000 });
-  assert(await page.getAttribute('#step1', 'data-state') === 'now', '手順1が「いま」でない');
+  assert(await page.getAttribute('#flowbox', 'data-state') === 'idle', 'はじめから流れている扱いになっている');
+  assert(/まだ流していません/.test(await page.textContent('#flowTitle')), await page.textContent('#flowTitle'));
+  assert(await page.isVisible('#openApp') && await page.isVisible('#browserWay'), '流し方を選べない');
   assert(/Track A/.test(await page.textContent('#trackName')), await page.textContent('#trackName'));
   assert(/手順の会/.test(await page.textContent('#eventName')), await page.textContent('#eventName'));
   assert(errors.length === 0, `エラー: ${errors.join(' / ')}`);
+  await page.close(); await org.page.close();
+});
+
+await t('ブラウザで流すと「流しています」に変わり、選択肢は畳まれる', async () => {
+  // 同じタブで遷移するとこの画面が消え、合図も返らない。別の窓で開く。
+  const org = await makeLiveEvent('流すの会', ['Track A']);
+  const { page } = await open(await speakerLink(org.page));
+  await page.waitForFunction(
+    () => /受付中/.test(document.getElementById('stateText')?.textContent ?? ''), { timeout: 20000 });
+
+  const [ovl] = await Promise.all([
+    page.context().waitForEvent('page'),
+    page.click('#browserWay'),
+  ]);
+  await ovl.waitForLoadState('load');
+
+  await page.waitForFunction(
+    () => document.getElementById('flowbox')?.dataset.state === 'live', { timeout: 25000 });
+  assert(/流しています/.test(await page.textContent('#flowTitle')), await page.textContent('#flowTitle'));
+  // 決め終わったら選択肢は引っ込む
+  assert(!await page.isVisible('#openApp'), '流し方の選択肢が出たまま');
+  assert(await page.isVisible('#changeWay'), '変える道が無い');
+
+  // 変えたい人は戻せる
+  await page.click('#changeWay');
+  await page.waitForFunction(() => document.getElementById('openApp')?.offsetParent !== null,
+    { timeout: 20000 });
+  await ovl.close(); await page.close(); await org.page.close();
+});
+
+await t('アプリに渡したら、渡したことだけを言う', async () => {
+  // Electron は別の窓で開くので opener が無く、合図が返らない。
+  // こちらから分かるのは「渡した」ところまでなので、そこまでを出す。
+  const org = await makeLiveEvent('渡すの会', ['Track A']);
+  const { page } = await open(await speakerLink(org.page));
+  await page.waitForFunction(
+    () => /受付中/.test(document.getElementById('stateText')?.textContent ?? ''), { timeout: 20000 });
+  await page.evaluate(() => document.getElementById('openApp').click());
+  await page.waitForFunction(
+    () => document.getElementById('flowbox')?.dataset.state === 'handoff', { timeout: 20000 });
+  const title = await page.textContent('#flowTitle');
+  assert(/渡しました/.test(title), title);
+  assert(!/流しています/.test(title), `確かめられないのに流していると言っている: ${title}`);
+  // 開かなかった人のために、入手と別の道を残す
+  assert(await page.isVisible('#getApp') && await page.isVisible('#browserWay'), '逃げ道が無い');
   await page.close(); await org.page.close();
 });
 
@@ -347,18 +394,22 @@ await t('「アプリで開く」は danmaku:// を指す', async () => {
   await page.close(); await org.page.close();
 });
 
-await t('登壇者の画面に押す操作が無い', async () => {
-  // 登壇の開始・終了も投稿の開け閉めも、この道具の持ち物ではない。
+await t('登壇者の画面に状態を変える操作が無い', async () => {
+  // 流し方は選べるが、登壇の開始・終了も投稿の開け閉めも持たない。
   // 壇上で押し間違える場所を作らない。
   const org = await makeLiveEvent('手ぶらの会', ['Track A']);
   const { page, errors } = await open(await speakerLink(org.page));
   await page.waitForFunction(
     () => /受付中/.test(document.getElementById('stateText')?.textContent ?? ''), { timeout: 20000 });
-  const extra = await page.evaluate(() =>
-    [...document.querySelectorAll('main button')].map((b) => b.textContent.trim()));
-  assert(extra.length === 0, `操作が残っている: ${extra.join(' / ')}`);
-  assert(await page.evaluate(() => document.querySelectorAll('main input').length) === 0,
-    '入力欄が残っている');
+  for (const id of ['startBtn', 'endBtn', 'stopBtn', 'resumeBtn']) {
+    assert(await page.locator(`#${id}`).count() === 0, `${id} がある`);
+  }
+  const words = await page.evaluate(() =>
+    [...document.querySelectorAll('a, button')].map((b) => b.textContent.trim()).join(' / '));
+  assert(!/はじめる|終える|投稿を止める|投稿を受け付ける/.test(words), `操作が残っている: ${words}`);
+  // コメント一覧の側には何も置かない
+  assert(await page.evaluate(() => document.querySelectorAll('main button, main input').length) === 0,
+    'コメント欄に操作がある');
   assert(errors.length === 0, `エラー: ${errors.join(' / ')}`);
   await page.close(); await org.page.close();
 });
@@ -420,10 +471,18 @@ await t('投稿を止めるのは運営だけ（登壇者の画面に操作は�
   await aud.page.fill('#text', 'いま送れないはず');
   assert(await aud.page.isDisabled('#send'), '止めたのに送れる');
 
-  // 登壇者にも理由が出る
+  // 登壇者にも理由と、誰に言えばいいかが出る
   await sp.page.waitForFunction(
-    () => !document.getElementById('stoppedNote').classList.contains('hidden'), { timeout: 20000 });
+    () => /運営が止めています/.test(document.getElementById('stateReason')?.textContent ?? ''),
+    { timeout: 20000 });
   assert(/停止中/.test(await sp.page.textContent('#stateText')), await sp.page.textContent('#stateText'));
+  assert(/再開は運営へ/.test(await sp.page.textContent('#stateReason')), await sp.page.textContent('#stateReason'));
+  // 見出しと理由は別の行。横に繋げると読めない。
+  assert(await sp.page.evaluate(() => {
+    const t = document.getElementById('stateText').getBoundingClientRect();
+    const r = document.getElementById('stateReason').getBoundingClientRect();
+    return r.top >= t.bottom - 1;
+  }), '停止の理由が見出しと同じ行に出ている');
 
   // サーバも拒む（画面だけの制限にしない）
   const po = await actor();
@@ -862,8 +921,10 @@ await t('読み上げる場所は画面にひとつだけ', async () => {
   // 毎秒書き換わる側が読み上げの木から外れていること
   assert(await page.getAttribute('#stateSub', 'aria-hidden') === 'true',
     '毎秒書き換わる文字が読み上げに入っている');
-  // 外に出しても、止められた理由は別の場所で読める
-  assert(await page.locator('#stoppedNote').count() === 1, '理由を読む場所が無い');
+  // 止まっている理由は変わらないので、読み上げの中に残す
+  assert(await page.evaluate(() =>
+    document.getElementById('state').contains(document.getElementById('stateReason'))),
+    '止まっている理由が読み上げから外れている');
   await page.close(); await org.page.close();
 });
 

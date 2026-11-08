@@ -9,57 +9,75 @@
 <style>
   body { min-height: 100vh; display: flex; flex-direction: column; }
 
-  /* 上バーは登壇中ずっと見える。状態と「止める」だけ。 */
+  /* 上バーは登壇中ずっと見える。ここに全部置き、下はコメントだけにする。 */
   .bar {
     display: flex; align-items: center; gap: 1rem; flex-wrap: wrap;
-    padding: .9rem 1.25rem; background: var(--surface); border-bottom: 1px solid var(--line);
+    padding: .75rem 1.25rem; background: var(--surface); border-bottom: 1px solid var(--line);
   }
   .bar .who { min-width: 8rem; }
   .bar .who .t { font-size: 1.25rem; font-weight: 700; line-height: 1.3; }
   .bar .who .s { font-size: .8rem; color: var(--muted); }
   .bar .spacer { flex: 1; }
-  .state { display: flex; align-items: center; gap: .55rem; padding: .45rem .9rem;
-           border-radius: 8px; background: var(--surface2); }
-  .state .dot { width: .6rem; height: .6rem; border-radius: 50%; background: var(--muted); flex: none; }
-  .state .t { font-weight: 700; font-size: .9rem; }
-  .statebox { display: flex; flex-direction: column; align-items: flex-start; gap: .2rem; }
-  .statebox .s { font-size: .75rem; color: var(--muted); }
-  .state[data-kind="live"]    .dot { background: var(--good); box-shadow: 0 0 0 4px rgba(95,211,154,.16); }
-  .state[data-kind="stopped"] .dot { background: var(--warn); }
-  .state[data-kind="idle"]    .dot { background: var(--muted); }
-  .state[data-kind="error"]   .dot { background: var(--bad); }
 
-  main { flex: 1; display: grid; gap: 1rem; grid-template-columns: 1fr; padding: 1.25rem;
-         max-width: 70rem; width: 100%; margin: 0 auto; align-content: start; }
-  @media (min-width: 60rem) { main { grid-template-columns: 24rem 1fr; } }
+  /* 箱の中は「見出し＋下の一行」。中身の出し分けは JS がやる。 */
+  .lines, #state { display: flex; flex-direction: column; min-width: 0; }
+  .lines .t { font-weight: 700; font-size: .9rem; line-height: 1.35; }
+  .lines .s { font-size: .75rem; color: var(--muted); line-height: 1.4; }
+  .lines .s:empty { display: none; }
 
-  .step { padding: 1rem 1.1rem; }
-  .step h2 { display: flex; align-items: center; gap: .6rem; font-size: 1rem; font-weight: 700; }
-  .step h2 .n { width: 1.5rem; height: 1.5rem; border-radius: 6px; display: grid; place-items: center;
-                font-size: .78rem; background: var(--surface2); color: var(--muted); border: 1px solid var(--line); }
-  .step .ok { margin-left: auto; font-size: .78rem; color: var(--good); font-weight: 600; }
+  .statebox {
+    display: flex; align-items: center; gap: .55rem;
+    padding: .4rem .9rem; border-radius: 8px;
+    background: var(--surface2); border: 1px solid var(--line);
+  }
+  .statebox .dot { width: .6rem; height: .6rem; border-radius: 50%; background: var(--muted); flex: none; }
+  .statebox[data-kind="live"]    .dot { background: var(--good); box-shadow: 0 0 0 4px var(--good-bg); }
+  .statebox[data-kind="stopped"] { background: var(--bad-bg); border-color: var(--bad); }
+  .statebox[data-kind="stopped"] .dot { background: var(--bad); border-radius: 2px; box-shadow: none; }
+  .statebox[data-kind="stopped"] .t,
+  .statebox[data-kind="stopped"] .s { color: var(--bad); }
+  .statebox[data-kind="error"] { background: var(--bad-bg); border-color: var(--bad); }
+  .statebox[data-kind="error"] .dot { background: var(--bad); }
 
-  #openApp { margin-top: .9rem; }
-  .sub { display: flex; gap: 1rem; margin-top: .6rem; font-size: .82rem; }
+  /* 流しているかどうか。登壇前に一度決めたら、あとは見るだけになる。 */
+  .flowbox {
+    display: flex; align-items: center; gap: .75rem; flex-wrap: wrap;
+    padding: .5rem .5rem .5rem .9rem; border-radius: 10px;
+    background: var(--surface); border: 1px solid var(--line);
+  }
+  /* まだ流していない間だけ、ここが画面でいちばん強い */
+  .flowbox[data-state="idle"] { border-color: var(--accent); border-width: 2px; padding: calc(.5rem - 1px) calc(.5rem - 1px) calc(.5rem - 1px) calc(.9rem - 1px); }
+  .flowbox[data-state="live"] { background: var(--surface2); }
+  .flowbox[data-state="live"] .t { color: var(--good); }
+  .flowbox .mark { flex: none; display: grid; place-items: center; width: 1.4rem; height: 1.4rem; }
+  .flowbox .mark svg { width: 100%; height: 100%; display: block; }
+  .flowbox .acts { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; }
+  .flowbox .acts .btn { min-height: 44px; font-size: .88rem; padding: .5rem .9rem; }
+  .flowbox .acts a.plain { font-size: .82rem; white-space: nowrap; }
+  /* 流れているあいだは選択肢を畳む。押し直したい人は「流し方を変える」から */
+  .flowbox[data-state="live"]:not([data-acts="1"]) #flowActs { display: none; }
+  .flowbox:not([data-state="live"]) #flowDone,
+  .flowbox[data-acts="1"] #flowDone { display: none; }
 
-  #nowMeta { font-weight: 600; }
+  main { flex: 1; display: block; padding: 1.25rem;
+         max-width: 70rem; width: 100%; margin: 0 auto; }
 
-  /* コメント一覧。登壇者が手元で見る。 */
+  /* コメント一覧。この画面の主役。 */
   .feedcard { padding: 0; overflow: hidden; display: flex; flex-direction: column; }
   .feedhead { display: flex; align-items: baseline; gap: .6rem;
               padding: .85rem 1.1rem; border-bottom: 1px solid var(--line); }
   .feedhead h2 { font-size: 1rem; font-weight: 700; }
   .feedhead .n { margin-left: auto; font-size: .85rem; color: var(--muted);
                  font-variant-numeric: tabular-nums; }
-  #feed { list-style: none; margin: 0; padding: 0; overflow-y: auto; max-height: 60vh; }
-  /* 押すものは指でも届く大きさにする */
-  #openApp { min-height: 48px; }
+  #feed { list-style: none; margin: 0; padding: 0; overflow-y: auto; max-height: 72vh; }
   #feed li { display: flex; gap: 1rem; align-items: baseline;
-             padding: .7rem 1.1rem; border-bottom: 1px solid var(--line); }
+             padding: .75rem 1.1rem; border-bottom: 1px solid var(--line); }
   #feed li:last-child { border-bottom: 0; }
+  /* いちばん新しい1件だけ地を変える。どれが今来たのかが分かる。 */
+  #feed li:first-child { background: var(--surface2); }
   #feed .at { flex: none; width: 4.5rem; font-size: .75rem; color: var(--muted);
               font-variant-numeric: tabular-nums; }
-  #feed .tx { font-size: 1.02rem; word-break: break-word; }
+  #feed .tx { font-size: 1.08rem; word-break: break-word; }
   #feedEmpty { padding: 2.5rem 1.1rem; text-align: center; color: var(--muted); font-size: .9rem; }
 </style>
 
@@ -68,41 +86,48 @@
     <div class="t" id="trackName">—</div>
     <div class="s" id="eventName">—</div>
   </div>
-  <div class="statebox">
-    <!-- 読み上げるのはここだけ。状態が変わったときに1回だけ喋ってほしい。 -->
-    <div class="state" id="state" data-kind="" role="status" aria-atomic="true">
-      <span class="dot"></span>
-      <span class="t" id="stateText">読み込み中</span>
+
+  <div class="statebox" id="statebox" data-kind="">
+    <span class="dot" aria-hidden="true"></span>
+    <div class="lines">
+      <!-- 読み上げるのはここだけ。状態が変わったときに1回。
+           止まっている理由は変わらないので、状態と一緒に読み上げる。 -->
+      <div id="state" role="status" aria-atomic="true">
+        <span class="t" id="stateText">読み込み中</span>
+        <span class="s" id="stateReason"></span>
+      </div>
+      <!-- 「最後のコメント 3秒前」は毎秒書き換わる。読み上げに混ぜると
+           登壇中ずっと喋り続けることになるので、読み上げの木から外す。 -->
+      <span class="s" id="stateSub" aria-hidden="true"></span>
     </div>
-    <!-- 「最後のコメント 3秒前」は毎秒書き換わる。読み上げに混ぜると
-         登壇中ずっと喋り続けることになるので、読み上げの木から外す。 -->
-    <span class="s" id="stateSub" aria-hidden="true"></span>
   </div>
+
   <span class="spacer"></span>
-  <!-- 受付の開け閉めは運営の操作。登壇者には押す場所が無い（Rules でも拒んでいる）。 -->
-  <p id="stoppedNote" class="hidden" style="margin:0;font-size:.85rem;color:var(--warn);max-width:20rem">
-    いま運営が投稿を止めています。開けてもらうよう運営にお願いしてください。</p>
+
+  <div class="flowbox" id="flowbox" data-state="idle">
+    <span class="mark" id="flowMark" aria-hidden="true"></span>
+    <div class="lines">
+      <div class="t" id="flowTitle">スライドにまだ流していません</div>
+      <div class="s" id="flowSub">観客のコメントがスライドの上を流れます</div>
+    </div>
+    <div class="acts" id="flowActs">
+      <a id="openApp" class="btn primary" href="#">アプリで流す</a>
+      <a id="browserWay" class="btn" href="#">ブラウザで流す</a>
+      <a id="getApp" class="plain" href="./app.html">アプリを入手</a>
+    </div>
+    <div class="acts" id="flowDone">
+      <button id="changeWay" class="btn" type="button">流し方を変える</button>
+    </div>
+  </div>
 </div>
 
 <main>
-  <div class="stack">
-    <section class="card step" id="step1" data-state="now">
-      <h2>スライドに重ねる <span class="ok hidden" id="appOk">✓ アプリ接続中</span></h2>
-      <a id="openApp" class="btn primary block lg" href="#">アプリで開く</a>
-      <div class="sub">
-        <a id="getApp" href="./app.html">アプリを入手</a>
-        <a id="browserWay" href="#">ブラウザ版で続ける</a>
-      </div>
-    </section>
-
-  </div>
-
   <section class="card feedcard">
     <div class="feedhead">
       <h2>届いているコメント</h2>
-      <!-- 数字だけでは意味が伝わらないので文にしてある。
-           ただし読み上げ対象にはしない。1件ごとに割り込むと状態の変化が埋もれる。 -->
-      <span class="n" id="countLabel"><span id="count">0</span> 件 届いています</span>
+      <!-- 数字だけでは意味が伝わらないので、読み上げには文として渡す。
+           目で見るぶんには見出しが隣にあるので「214 件」で足りる。 -->
+      <span class="n" id="countLabel"><span id="count">0</span> 件<span class="visually-hidden"> 届いています</span></span>
     </div>
     <ul id="feed"></ul>
     <div id="feedEmpty">まだ届いていません</div>
@@ -111,8 +136,8 @@
 
 <script type="module">
   const stateText = document.getElementById('stateText');
-  const state = document.getElementById('state');
-  const show = (m) => { stateText.textContent = `エラー: ${m}`; state.dataset.kind = 'error'; };
+  const statebox = document.getElementById('statebox');
+  const show = (m) => { stateText.textContent = `エラー: ${m}`; statebox.dataset.kind = 'error'; };
   addEventListener('error', (e) => show(e.message ?? e.error));
   addEventListener('unhandledrejection', (e) => show(e.reason?.message ?? e.reason));
   try {

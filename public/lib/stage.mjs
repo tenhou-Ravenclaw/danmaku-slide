@@ -1,6 +1,8 @@
 // 登壇者の画面。登壇中に見るので、焦って探す要素が無い状態にする。
 //
-// やることは1つだけ。スライドに重ねる。
+// 決めることは1つだけ。コメントをスライドのどこに流すか。
+// 決め終わると上のバーに畳まれ、画面はコメント一覧だけになる。
+//
 // 登壇の開始・終了も投稿の開け閉めもここには無い。前者はこの道具の仕事ではなく、
 // 後者は運営の判断なので、壇上で押せる場所に置かない。
 import { start } from './app.mjs';
@@ -17,22 +19,29 @@ export function appUrlFor(eventId, trackId) {
 
 export async function createStage({ eventId, trackId, now = () => Date.now() } = {}) {
   const el = (id) => document.getElementById(id);
-  const state = el('state');
+  const statebox = el('statebox');
 
-  // Firestore はローカルに楽観適用してからサーバの判定が返るので、
-  // 巻き戻しのスナップショットでエラー表示が消えないようにする。
+  /**
+   * 状態を出す。
+   *
+   * reason（止まっている理由）は変わらないので読み上げの中に置く。
+   * sub（最後のコメント何秒前）は毎秒変わるので読み上げの外に置く。
+   * 見た目は同じ場所に出るが、読み上げでの扱いが違う。
+   */
   let stickyError = null, errorTimer = 0;
-  const say = (text, sub = '', kind = '') => {
+  const say = (text, { reason = '', sub = '', kind = '' } = {}) => {
     if (stickyError) return;
     el('stateText').textContent = text;
+    el('stateReason').textContent = reason;
     el('stateSub').textContent = sub;
-    state.dataset.kind = kind;
+    statebox.dataset.kind = kind;
   };
   const fail = (text) => {
     stickyError = text;
     el('stateText').textContent = text;
+    el('stateReason').textContent = '';
     el('stateSub').textContent = '';
-    state.dataset.kind = 'error';
+    statebox.dataset.kind = 'error';
     clearTimeout(errorTimer);
     errorTimer = setTimeout(() => { stickyError = null; render(); }, 6000);
   };
@@ -48,11 +57,73 @@ export async function createStage({ eventId, trackId, now = () => Date.now() } =
   let track = null;
   let received = 0;
   let lastAt = null;
-  let appConnected = false;
   const seen = new Set();
 
   el('openApp').href = appUrlFor(eventId, trackId);
   el('browserWay').href = withEnv(`${overlayUrlFor(eventId, trackId)}&capture=1`);
+
+  // --- どこに流しているか ------------------------------------------------
+  // idle    まだ決めていない
+  // handoff アプリに渡した。開いたかどうかはこちらからは分からない
+  // live    こちらが開いた窓から合図が返ってきた
+  const FLOW = {
+    idle: {
+      title: 'スライドにまだ流していません',
+      sub: '観客のコメントがスライドの上を流れます',
+      mark: circle(),
+    },
+    handoff: {
+      title: 'アプリに渡しました',
+      sub: 'アプリの窓を確かめてください。開かないときはアプリを入手してください',
+      mark: circle(),
+    },
+    live: {
+      title: 'ブラウザでスライドに流しています',
+      sub: 'このまま発表できます',
+      mark: check(),
+    },
+  };
+
+  function circle() {
+    return '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true">'
+      + '<circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="2"/></svg>';
+  }
+  function check() {
+    return '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true">'
+      + '<circle cx="12" cy="12" r="10" fill="currentColor"/>'
+      + '<path d="M7.5 12.4l3 3 6-6.4" stroke="var(--surface)" stroke-width="2.2"'
+      + ' stroke-linecap="round" stroke-linejoin="round"/></svg>';
+  }
+
+  let flow = 'idle';
+  function setFlow(next, { showActs = false } = {}) {
+    flow = next;
+    const f = FLOW[next];
+    el('flowbox').dataset.state = next;
+    if (showActs) el('flowbox').dataset.acts = '1';
+    else el('flowbox').removeAttribute('data-acts');
+    el('flowTitle').textContent = f.title;
+    el('flowSub').textContent = f.sub;
+    el('flowMark').innerHTML = f.mark;
+    el('flowMark').style.color = next === 'live' ? 'var(--good)' : 'var(--muted)';
+  }
+  setFlow('idle');
+
+  // アプリに渡したかどうかは、こちらからは確かめられない。
+  // Electron は別の窓で開くので opener が無く、合図が返らない。
+  // 分かるのは「渡した」ところまでなので、そこまでを出す。
+  el('openApp').addEventListener('click', () => {
+    if (flow !== 'live') setFlow('handoff');
+  });
+
+  // 同じタブで遷移するとこの画面が消え、合図も返らなくなる。
+  // 別の窓で開いて opener を残す。
+  el('browserWay').addEventListener('click', (e) => {
+    e.preventDefault();
+    window.open(el('browserWay').href, 'danmaku-overlay');
+  });
+
+  el('changeWay').addEventListener('click', () => setFlow(flow, { showActs: true }));
 
   // --- 画面の出し分け ---------------------------------------------------
   function render() {
@@ -61,14 +132,15 @@ export async function createStage({ eventId, trackId, now = () => Date.now() } =
     el('trackName').textContent = track.name;
     el('eventName').textContent = eventNameText;
 
-    el('step1').dataset.state = appConnected ? 'done' : 'now';
-    el('appOk').classList.toggle('hidden', !appConnected);
-
-    // 止めたのは運営。登壇者には何が起きているかだけ伝える。
-    el('stoppedNote').classList.toggle('hidden', !track.stopped);
-
-    if (track.stopped) say('停止中', '運営が投稿を止めています', 'stopped');
-    else say('受付中', lastAt ? `最後のコメント ${ago(lastAt, now())}` : 'まだ届いていません', 'live');
+    // 止めたのは運営。登壇者には何が起きているかと、誰に言えばいいかを伝える。
+    if (track.stopped) {
+      say('停止中', { reason: '運営が止めています。再開は運営へ', kind: 'stopped' });
+    } else {
+      say('受付中', {
+        sub: lastAt ? `最後のコメント ${ago(lastAt, now())}` : 'まだ届いていません',
+        kind: 'live',
+      });
+    }
   }
 
   let eventNameText = '';
@@ -126,11 +198,10 @@ export async function createStage({ eventId, trackId, now = () => Date.now() } =
     }
   }, 1000);
 
-  // アプリが開いたかどうかは直接は分からない。
-  // 弾幕ページを開いたという合図を受け取って、手順1を完了にする。
+  // こちらが開いた窓からだけ合図が返る。返ってきたら「流している」に変える。
   addEventListener('message', (e) => {
     if (e.origin !== location.origin) return;
-    if (e.data?.type === 'danmaku:overlay-ready') { appConnected = true; render(); }
+    if (e.data?.type === 'danmaku:overlay-ready') setFlow('live');
   });
 
   render();
@@ -138,6 +209,7 @@ export async function createStage({ eventId, trackId, now = () => Date.now() } =
     bus, eventId, trackId,
     get received() { return received; },
     get track() { return track; },
+    get flow() { return flow; },
     stop() { clearInterval(ticker); unwatchComments(); },
   };
 }
