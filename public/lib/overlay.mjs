@@ -4,11 +4,17 @@
 import { DanmakuFlow } from './danmaku.mjs';
 import { Renderer } from './renderer.mjs';
 import { connect } from './app.mjs';
+import * as capture from './capture.mjs';
+import * as screens from './screens.mjs';
 
-export function createOverlay({ canvas, hud, trackId }) {
+export function createOverlay({ canvas, hud, video = null, trackId, capturing = false }) {
   const flow = new DanmakuFlow();
   const renderer = new Renderer(canvas);
   const state = { status: '接続中', track: null, error: null, dropped: 0 };
+
+  // 貼り方B（キャプチャ合成）のための状態。使わないときは触らない。
+  let stream = null;
+  let backdrop = null;
 
   let unwatchTrack = null;
   let unwatchComments = null;
@@ -24,7 +30,16 @@ export function createOverlay({ canvas, hud, trackId }) {
   }
 
   function frame(tMs) {
-    renderer.draw(flow.step(tMs));
+    // stream を見る。video.srcObject だけ見ていると、共有を止めた後も
+    // 最後のフレームが残って videoWidth > 0 のままになり、止めたはずの
+    // スライドが固まって映り続ける。
+    if (stream && video && video.videoWidth > 0) {
+      // 画面の大きさもスライドの大きさも変わり得るので、毎フレーム出し直す
+      const fit = capture.fitRect(video.videoWidth, video.videoHeight,
+        window.innerWidth, window.innerHeight);
+      backdrop = { source: video, ...fit };
+    }
+    renderer.draw(flow.step(tMs), backdrop);
     if (state.dropped !== flow.dropped) {
       state.dropped = flow.dropped;
       paintHud();
@@ -96,13 +111,65 @@ export function createOverlay({ canvas, hud, trackId }) {
   paintHud();
   start();
 
+  // --- 貼り方B: スライドを取り込む --------------------------------------
+  const CAPTURE_REASON = {
+    unsupported: 'このブラウザは画面の取り込みに対応していない。Chrome か Edge で開く',
+    cancelled:   '選ばれなかった。もう一度「スライドを選ぶ」を押す',
+    none:        '取り込めるものが無かった',
+    failed:      '取り込めなかった',
+  };
+
+  async function pickSlide() {
+    if (!video) return { ok: false, reason: 'この画面では使えない' };
+    try {
+      const next = await capture.pickSlide();
+      capture.stop(stream);
+      stream = next;
+      await capture.attach(stream, video);
+      capture.onEnded(stream, () => {
+        // 共有を止められた。黙って黒くしない。
+        stream = null; backdrop = null;
+        video.srcObject = null;   // 最後のフレームを残さない
+        state.status = 'スライドの取り込みが止まった';
+        paintHud();
+        onCaptureChange?.(false);
+      });
+      state.status = '接続';
+      state.error = null;
+      paintHud();
+      onCaptureChange?.(true);
+      return { ok: true };
+    } catch (e) {
+      const reason = CAPTURE_REASON[e.kind] ?? CAPTURE_REASON.failed;
+      // 選択画面を閉じただけなら、エラー扱いにして赤くしない
+      if (e.kind !== 'cancelled') fail(reason); else { state.status = reason; paintHud(); }
+      return { ok: false, reason };
+    }
+  }
+
+  function dropSlide() {
+    capture.stop(stream);
+    stream = null;
+    backdrop = null;
+    if (video) video.srcObject = null;   // 最後のフレームを残さない
+    onCaptureChange?.(false);
+    paintHud();
+  }
+
+  let onCaptureChange = null;
+
   return {
     flow, renderer,
+    pickSlide, dropSlide,
+    get hasSlide() { return stream !== null; },
+    onCaptureChange(fn) { onCaptureChange = fn; },
+    screens,
     stop() {
       cancelAnimationFrame(raf);
       window.removeEventListener('resize', fit);
       unwatchComments?.();
       unwatchTrack?.();
+      capture.stop(stream);
     },
     fail,
   };

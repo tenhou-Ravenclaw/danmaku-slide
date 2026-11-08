@@ -43,10 +43,22 @@ export class Renderer {
     return w;
   }
 
-  /** 1フレーム描く。items は DanmakuFlow#step の戻り値。 */
-  draw(items) {
+  /**
+   * 1フレーム描く。items は DanmakuFlow#step の戻り値。
+   *
+   * backdrop を渡すと、弾幕の下にそれを敷く（貼り方B のスライド）。
+   * 下敷きは毎フレーム描き直す必要があるので、clearRect の直後に置く。
+   */
+  draw(items, backdrop = null) {
     const { ctx } = this;
-    ctx.clearRect(0, 0, this.canvas.width / this.dpr, this.canvas.height / this.dpr);
+    const w = this.canvas.width / this.dpr;
+    const h = this.canvas.height / this.dpr;
+    ctx.clearRect(0, 0, w, h);
+
+    if (backdrop?.source && backdrop.width > 0 && backdrop.height > 0) {
+      ctx.drawImage(backdrop.source, backdrop.x, backdrop.y, backdrop.width, backdrop.height);
+    }
+
     for (const it of items) {
       const y = it.y + this.style.baselineOffset;
       ctx.strokeText(it.text, it.x, y);
