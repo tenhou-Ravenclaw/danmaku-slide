@@ -7,13 +7,20 @@ import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { _electron } from 'playwright';
 import { fileURLToPath } from 'node:url';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 const MAIN = fileURLToPath(new URL('../../desktop/main.cjs', import.meta.url));
-let app, setup;
+let app, setup, profile;
 
 before(async () => {
+  // 専用の作業ディレクトリで動かす。
+  // 二重起動を止める仕組みがあるので、手元でアプリを起動していると
+  // テスト側がロックを取れずに即終了する。
+  profile = mkdtempSync(join(tmpdir(), 'danmaku-shell-'));
   app = await _electron.launch({
-    args: [MAIN],
+    args: [`--user-data-dir=${profile}`, MAIN],
     // 本番を叩かせない。重ねる先の URL の組み立てだけを見る。
     env: { ...process.env, DANMAKU_ORIGIN: 'http://127.0.0.1:1/' },
   });
@@ -21,7 +28,10 @@ before(async () => {
   await setup.waitForSelector('#track');
 });
 
-after(async () => { await app?.close(); });
+after(async () => {
+  await app?.close();
+  if (profile) rmSync(profile, { recursive: true, force: true });
+});
 
 test('最初に出るのは設定ウィンドウ', async () => {
   assert.equal(await setup.title(), '弾幕スライド');
