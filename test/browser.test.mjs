@@ -231,6 +231,71 @@ await t('全トラックの投稿を止められる', async () => {
   await page.close();
 });
 
+await t('次に足すトラック名が入っている', async () => {
+  // 固定の例を置くと、空のイベントで「Track D」のような嘘を出すことになる
+  const org = await makeEventInBrowser('名前の会', []);
+  await org.page.waitForFunction(
+    () => document.getElementById('newTrackName').value === 'Track A', { timeout: 20000 });
+  await org.page.click('#addTrack');
+  await org.page.waitForFunction(
+    () => document.getElementById('newTrackName').value === 'Track B', { timeout: 20000 });
+  await org.page.click('#addTrack');
+  await org.page.waitForFunction(
+    () => document.querySelectorAll('#tracks tr').length === 2, { timeout: 20000 });
+  const names = await org.page.evaluate(() =>
+    [...document.querySelectorAll('#tracks tr td:first-child')].map((td) => td.textContent.trim()));
+  assert(names.join(',') === 'Track A,Track B', names.join(','));
+  await org.page.close();
+});
+
+await t('イベント名と開催日をその場で直せる', async () => {
+  const org = await makeEventInBrowser('直す前の会', []);
+  await org.page.fill('#evNameInput', '直した後の会');
+  await org.page.press('#evNameInput', 'Tab');
+  await org.page.waitForFunction(
+    () => /直した後の会/.test(document.getElementById('evName')?.textContent ?? ''), { timeout: 20000 });
+  await org.page.fill('#evDateInput', '2027-03-03');
+  await org.page.press('#evDateInput', 'Tab');
+  await org.page.waitForFunction(
+    () => /2027\/03\/03/.test(document.getElementById('evMeta')?.textContent ?? ''), { timeout: 20000 });
+  await org.page.close();
+});
+
+await t('イベント名は空にできない', async () => {
+  const org = await makeEventInBrowser('空にできない会', []);
+  await org.page.fill('#evNameInput', '   ');
+  await org.page.press('#evNameInput', 'Tab');
+  await org.page.waitForFunction(
+    () => /空にできません/.test(document.getElementById('msg')?.textContent ?? ''), { timeout: 20000 });
+  assert(/空にできない会/.test(await org.page.textContent('#evName')), '消えてしまった');
+  await org.page.close();
+});
+
+await t('イベントをトラックごと削除できる', async () => {
+  const org = await makeEventInBrowser('消す会', ['Track A', 'Track B']);
+  org.page.on('dialog', (d) => d.accept());
+  await org.page.click('#deleteEvent');
+  // 一覧へ戻る
+  await org.page.waitForFunction(
+    () => new URL(location.href).searchParams.get('e') === null, { timeout: 20000 });
+  await org.page.waitForSelector('#newEventName', { state: 'visible', timeout: 20000 });
+  await org.page.waitForFunction(
+    () => !document.getElementById('upcoming').textContent.includes('消す会'), { timeout: 20000 });
+  await org.page.close();
+});
+
+await t('消す操作は非常停止から離れている', async () => {
+  // 隣り合っていると押し間違える
+  const org = await makeEventInBrowser('距離の会', ['Track A']);
+  const gap = await org.page.evaluate(() => {
+    const stop = document.getElementById('stopAll').getBoundingClientRect();
+    const del = document.getElementById('deleteEvent').getBoundingClientRect();
+    return Math.abs(del.top - stop.bottom);
+  });
+  assert(gap > 200, `近すぎる: ${Math.round(gap)}px`);
+  await org.page.close();
+});
+
 // --- 登壇者の画面 -------------------------------------------------------
 await t('リンクが不完全なら理由が出る', async () => {
   const { page } = await open(`${HOST}/stage.html?emu=1`);

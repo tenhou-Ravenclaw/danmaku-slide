@@ -42,6 +42,12 @@
   .btn.remove:hover { background: var(--bad-bg); }
 
   .foot { font-size: .8rem; color: var(--muted); margin-top: .6rem; }
+  /* 消す操作は離して置く。非常停止の隣だと押し間違える。 */
+  .danger-zone { margin-top: 3rem; padding: 1rem 1.2rem; border-radius: var(--radius);
+    border: 1px solid color-mix(in oklab, var(--bad) 30%, var(--line));
+    display: flex; flex-wrap: wrap; gap: 1rem; align-items: center;
+    justify-content: space-between; }
+  .danger-zone > * { min-width: 0; }
   #msg { min-height: 1.4rem; font-size: .85rem; }
   #msg[data-kind="ok"]  { color: var(--good); }
   #msg[data-kind="bad"] { color: var(--bad); }
@@ -111,6 +117,14 @@
       <div class="grow">
         <h1 class="title" id="evName">—</h1>
         <p class="lead" id="evMeta">—</p>
+        <div class="row tight" id="evEditRow" style="margin-top:.6rem">
+          <label class="field grow" style="flex:1 1 16rem">
+            <span>イベント名</span>
+            <input id="evNameInput" maxlength="60" autocomplete="off"></label>
+          <label class="field" style="flex:0 1 11rem">
+            <span>開催日</span>
+            <input id="evDateInput" type="date"></label>
+        </div>
       </div>
       <div class="card qrcard">
         <div class="slot" id="evQr">QR</div>
@@ -147,7 +161,7 @@
         <td colspan="6">
           <div class="row">
             <span class="muted" style="font-size:.85rem">トラックを足す</span>
-            <input id="newTrackName" placeholder="Track D" maxlength="40" style="flex:0 1 16rem" autocomplete="off">
+            <input id="newTrackName" maxlength="40" style="flex:0 1 16rem" autocomplete="off">
             <button id="addTrack" class="btn primary">追加</button>
           </div>
         </td>
@@ -157,6 +171,16 @@
   <strong>登壇者に渡す</strong>リンクは、押すたびに新しい合言葉を発行します。渡した人だけがそのトラックを操作できます。<br>
   <strong>観客に配る</strong>QRは部屋の入口用。チラシには右上のイベント全体のQRを使います。
 </p>
+
+<!-- 消す操作は非常停止から離して置く。隣り合っていると押し間違える。 -->
+<section class="danger-zone">
+  <div>
+    <div style="font-weight:600">このイベントを削除する</div>
+    <div class="muted" style="font-size:.82rem">
+      トラックと一緒に消えます。配ったQRとリンクはすべて使えなくなります。</div>
+  </div>
+  <button id="deleteEvent" class="btn danger">削除する</button>
+</section>
   </section>
 </main>
 

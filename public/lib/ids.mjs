@@ -81,3 +81,23 @@ export function withEnv(url, search = (typeof location !== 'undefined' ? locatio
   }
   return u.pathname + u.search + u.hash;
 }
+
+/**
+ * 次のトラック名を決める。
+ *
+ * 空のイベントなら Track A。A と C があるなら B を埋める（抜けを先に使う）。
+ * Z まで埋まったら番号に切り替える。
+ * 固定の例を置くと、空のイベントで「Track D」のような嘘を出すことになる。
+ */
+export function nextTrackName(existing = []) {
+  const used = new Set(existing.map((n) => String(n ?? '').trim()));
+  for (let i = 0; i < 26; i++) {
+    const name = `Track ${String.fromCharCode(65 + i)}`;
+    if (!used.has(name)) return name;
+  }
+  for (let i = 1; i < 1000; i++) {
+    const name = `Track ${i}`;
+    if (!used.has(name)) return name;
+  }
+  return 'Track';
+}

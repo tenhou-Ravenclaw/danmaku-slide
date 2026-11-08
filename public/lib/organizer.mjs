@@ -7,7 +7,7 @@ import { createEventBus, createBus } from './bus.mjs';
 import { QRCode } from '../vendor/entry.js';
 import {
   newEventId, newTrackId, newHandoffCode, slugFromName,
-  stageUrlFor, postUrlFor, eventUrlFor, shortUrl, formatDate, withEnv,
+  stageUrlFor, postUrlFor, eventUrlFor, shortUrl, formatDate, withEnv, nextTrackName,
 } from './ids.mjs';
 
 export async function createOrganizer({ eventId, random = () => Math.random() } = {}) {
@@ -157,11 +157,47 @@ export async function createOrganizer({ eventId, random = () => Math.random() } 
       el('evName').textContent = ev.name;
       el('evMeta').textContent =
         [formatDate(ev.heldOn), `${tracks.length} トラック`].filter(Boolean).join(' · ');
+      // 打っている最中に上書きしない
+      if (document.activeElement !== el('evNameInput')) el('evNameInput').value = ev.name ?? '';
+      if (document.activeElement !== el('evDateInput')) el('evDateInput').value = ev.heldOn ?? '';
       if (!painted) { painted = true; paintEventQr(id); }
     }, (e) => fail(`読めない: ${e.code ?? e.message}`));
 
-    events.watchTracks(id, (rows) => { tracks = rows; paintTracks(id, rows); },
-      (e) => fail(`トラックを読めない: ${e.code ?? e.message}`));
+    // 名前と日付はその場で直せる。作り直させない。
+    const saveEvent = async () => {
+      const name = el('evNameInput').value.trim();
+      if (!name) { fail('イベント名は空にできません'); return; }
+      try {
+        await events.renameEvent(id, { name, heldOn: el('evDateInput').value || '' });
+        say('保存しました', 'ok');
+      } catch (e) { fail(`保存できない: ${e.code ?? e.message}`); }
+    };
+    el('evNameInput').addEventListener('change', saveEvent);
+    el('evDateInput').addEventListener('change', saveEvent);
+
+    el('deleteEvent').addEventListener('click', async () => {
+      const name = el('evNameInput').value.trim() || 'このイベント';
+      if (!confirm(`${name} を削除します。トラック ${tracks.length} 件も消えます。`
+        + '\n配ったQRとリンクはすべて使えなくなります。')) return;
+      el('deleteEvent').disabled = true;
+      try {
+        // トラックを先に消す。親だけ消すと辿れない行が残る。
+        for (const t of tracks) {
+          await sdk.deleteDoc(sdk.doc(db, 'events', id, 'tracks', t.id));
+        }
+        await sdk.deleteDoc(sdk.doc(db, 'events', id));
+        location.href = withEnv('./organizer.html');
+      } catch (e) {
+        fail(`削除できない: ${e.code ?? e.message}`);
+        el('deleteEvent').disabled = false;
+      }
+    });
+
+    events.watchTracks(id, (rows) => {
+      tracks = rows;
+      paintTracks(id, rows);
+      suggestTrackName(rows);
+    }, (e) => fail(`トラックを読めない: ${e.code ?? e.message}`));
 
     // Enter では足さない。打ち終わりに Enter を押す癖で増えてしまう。
     el('addTrack').addEventListener('click', () => addTrack(id, tracks));
@@ -276,6 +312,19 @@ export async function createOrganizer({ eventId, random = () => Math.random() } 
     }
   }
 
+  /**
+   * 次の名前を入れておく。打たずに押せるし、何が足されるかが見える。
+   * 打っている最中は触らない。
+   */
+  function suggestTrackName(rows) {
+    const input = el('newTrackName');
+    if (document.activeElement === input) return;
+    if (input.value.trim() && input.value !== input.dataset.suggested) return;
+    const next = nextTrackName(rows.map((t) => t.name));
+    input.value = next;
+    input.dataset.suggested = next;
+  }
+
   async function addTrack(eventId, tracks) {
     const name = el('newTrackName').value.trim();
     if (!name) { fail('トラック名を入れる'); el('newTrackName').focus(); return; }
@@ -284,13 +333,16 @@ export async function createOrganizer({ eventId, random = () => Math.random() } 
     let id = slugFromName(name);
     if (!id || used.has(id)) id = newTrackId(random);
     el('addTrack').disabled = true;
-    // 押した瞬間に空にする。await の後だと、続けて打ち始めた文字まで消える。
-    el('newTrackName').value = '';
+    // 押した瞬間に次の候補へ差し替える。await の後だと、続けて打ち始めた文字まで消える。
+    const nextName = nextTrackName([...tracks.map((t) => t.name), name]);
+    el('newTrackName').value = nextName;
+    el('newTrackName').dataset.suggested = nextName;
     try {
       await events.createTrack(eventId, id, { name });
       say(`${name} を足しました`, 'ok');
     } catch (e) {
       el('newTrackName').value = name;   // 失敗したら戻す
+      delete el('newTrackName').dataset.suggested;
       fail(`足せない: ${e.code ?? e.message}`);
     } finally {
       el('addTrack').disabled = false;

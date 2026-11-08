@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   newEventId, newTrackId, newHandoffCode, slugFromName,
   postUrlFor, stageUrlFor, overlayUrlFor, eventUrlFor, shortUrl, ago, formatDate, withEnv,
+  nextTrackName,
 } from '../../public/lib/ids.mjs';
 
 test('IDに紛れる文字を使わない', () => {
@@ -116,4 +117,32 @@ test('本番では何も足さない', () => {
 test('引き継ぐのは接続先を決めるものだけ', () => {
   // track や code をそのまま持ち回すと、別のトラックへ移れなくなる
   assert.equal(withEnv('/post.html?e=ev2&t=b', '?e=ev1&t=a&k=CODE'), '/post.html?e=ev2&t=b');
+});
+
+test('空のイベントなら Track A を勧める', () => {
+  // 固定の例を置くと「Track D」のような嘘を出すことになる
+  assert.equal(nextTrackName([]), 'Track A');
+});
+
+test('使われていない次の文字を勧める', () => {
+  assert.equal(nextTrackName(['Track A']), 'Track B');
+  assert.equal(nextTrackName(['Track A', 'Track B']), 'Track C');
+});
+
+test('抜けているところを先に埋める', () => {
+  assert.equal(nextTrackName(['Track A', 'Track C']), 'Track B');
+});
+
+test('自由につけた名前とは衝突を見ない', () => {
+  assert.equal(nextTrackName(['大ホール', '第2会議室']), 'Track A');
+});
+
+test('Z まで埋まったら番号に切り替える', () => {
+  const all = Array.from({ length: 26 }, (_, i) => `Track ${String.fromCharCode(65 + i)}`);
+  assert.equal(nextTrackName(all), 'Track 1');
+  assert.equal(nextTrackName([...all, 'Track 1']), 'Track 2');
+});
+
+test('空や空白の名前は無視する', () => {
+  assert.equal(nextTrackName(['', '  ', null, undefined]), 'Track A');
 });
