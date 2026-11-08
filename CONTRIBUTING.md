@@ -55,16 +55,24 @@ go install github.com/xpadev-net/gh-review-hook/cmd/gh-review-hook@latest
 
 ## CI
 
-`.github/workflows/ci.yml` の4ジョブ。
+> **いま CI は動いていない。** アカウントの課金ロックで全ジョブが未実行のまま落ちる（#46）。
+> マージ判断は手元の `npm run review` が根拠。中身は CI と同じものを全部回している。
+
+`.github/workflows/ci.yml` の7ジョブ。
 
 | ジョブ | 内容 |
 |---|---|
-| 純粋ロジックのテスト | `node --test` で 40 件 |
-| Firestore のテスト | エミュレータで Rules 42 件 + 境界 14 件 |
-| 実ブラウザでの検証 | Playwright + エミュレータで 24 件 |
+| 弾幕エンジンのテスト | `node --test` で 76 件 |
+| 透過シェルの設定 | `node --test` で 27 件（Electron のウィンドウ設定とリンクの解釈） |
+| Firestore のテスト（Rules と境界） | エミュレータで Rules 61 件 + 境界 17 件 |
+| 実ブラウザでの検証 | Playwright + エミュレータで 56 件 |
 | Rules の不変条件と生成物のガード | テストモードの Rules の混入、守りの欠落、生成物の追跡を機械で落とす |
 | 秘密情報スキャン | gitleaks で **履歴** を見る（一度コミットして消した鍵も対象） |
 | 依存の脆弱性 | 配信物は moderate 以上で落とす / 開発ツールは high 以上で落とす |
+
+Chrome 拡張（16 件）と本番の e2e（11 件）は CI に入れていない。
+前者は拡張を読み込んだ Chromium が要り、後者は本番に触るため。
+どちらも `npm run review` と `npm run test:e2e` で手元から回す。
 
 ### 依存の脆弱性
 
