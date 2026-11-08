@@ -22,7 +22,8 @@
            border-radius: 8px; background: var(--surface2); }
   .state .dot { width: .6rem; height: .6rem; border-radius: 50%; background: var(--muted); flex: none; }
   .state .t { font-weight: 700; font-size: .9rem; }
-  .state .s { font-size: .75rem; color: var(--muted); }
+  .statebox { display: flex; flex-direction: column; align-items: flex-start; gap: .2rem; }
+  .statebox .s { font-size: .75rem; color: var(--muted); }
   .state[data-kind="live"]    .dot { background: var(--good); box-shadow: 0 0 0 4px rgba(95,211,154,.16); }
   .state[data-kind="stopped"] .dot { background: var(--warn); }
   .state[data-kind="idle"]    .dot { background: var(--muted); }
@@ -67,9 +68,15 @@
     <div class="t" id="trackName">—</div>
     <div class="s" id="eventName">—</div>
   </div>
-  <div class="state" id="state" data-kind="" role="status" aria-atomic="true">
-    <span class="dot"></span>
-    <span><span class="t" id="stateText">読み込み中</span><br><span class="s" id="stateSub"></span></span>
+  <div class="statebox">
+    <!-- 読み上げるのはここだけ。状態が変わったときに1回だけ喋ってほしい。 -->
+    <div class="state" id="state" data-kind="" role="status" aria-atomic="true">
+      <span class="dot"></span>
+      <span class="t" id="stateText">読み込み中</span>
+    </div>
+    <!-- 「最後のコメント 3秒前」は毎秒書き換わる。読み上げに混ぜると
+         登壇中ずっと喋り続けることになるので、読み上げの木から外す。 -->
+    <span class="s" id="stateSub" aria-hidden="true"></span>
   </div>
   <span class="spacer"></span>
   <!-- 受付の開け閉めは運営の操作。登壇者には押す場所が無い（Rules でも拒んでいる）。 -->
@@ -93,9 +100,9 @@
   <section class="card feedcard">
     <div class="feedhead">
       <h2>届いているコメント</h2>
-      <!-- 数字だけを読み上げても意味が伝わらない。文として1つにまとめる。 -->
-      <span class="n" id="countLabel" role="status" aria-atomic="true">
-        <span id="count">0</span> 件 届いています</span>
+      <!-- 数字だけでは意味が伝わらないので文にしてある。
+           ただし読み上げ対象にはしない。1件ごとに割り込むと状態の変化が埋もれる。 -->
+      <span class="n" id="countLabel"><span id="count">0</span> 件 届いています</span>
     </div>
     <ul id="feed"></ul>
     <div id="feedEmpty">まだ届いていません</div>

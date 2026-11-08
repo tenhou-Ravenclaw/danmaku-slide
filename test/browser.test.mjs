@@ -107,12 +107,12 @@ async function speakerLink(orgPage, row = 0) {
   return url.replace(/^https?:\/\/[^/]+/, HOST) + '&emu=1';
 }
 
-async function makeEventInBrowser(name, trackNames = ['Track A']) {
-  const r = await open(`${HOST}/organizer.html?emu=1`);
+async function makeEventInBrowser(name, trackNames = ['Track A'], heldOn = '2026-12-12', scheme = null) {
+  const r = await open(`${HOST}/organizer.html?emu=1`, scheme ? { scheme } : {});
   // 運営が作ったものを同じ人として触れるよう、ctx を返して使い回す
   await signInAsOrganizer(r.page);
   await r.page.fill('#newEventName', name);
-  await r.page.fill('#newEventDate', '2026-12-12');
+  await r.page.fill('#newEventDate', heldOn);
   await r.page.click('#createEvent');
   await r.page.waitForFunction(
     () => new URL(location.href).searchParams.get('e') !== null, { timeout: 20000 });
@@ -133,8 +133,8 @@ async function makeEventInBrowser(name, trackNames = ['Track A']) {
  * 作ったばかりのトラックは受付前なので、投稿まわりを見たいテストはここから始める。
  * 開けるのは運営。登壇者には押す場所が無い。
  */
-async function makeLiveEvent(name, trackNames = ['Track A']) {
-  const org = await makeEventInBrowser(name, trackNames);
+async function makeLiveEvent(name, trackNames = ['Track A'], scheme = null) {
+  const org = await makeEventInBrowser(name, trackNames, '2026-12-12', scheme);
   await org.page.click('#openAll');
   await org.page.waitForFunction(
     (want) => document.querySelectorAll('#tracks .pill.good').length === want,
@@ -641,19 +641,48 @@ function contrast(a, b) {
 }
 const rgb = (s) => s.match(/\d+/g).slice(0, 3).map(Number);
 
-/** その画面の主な文字が地から十分浮いているか。 */
+/**
+ * その画面の主な文字が地から十分浮いているか。
+ *
+ * 地は半透明のことがある（状態の pill は surface の上に .14 の色を重ねている）。
+ * 重ねた結果の色で測らないと、文字色をほぼ同じ薄い色と比べてしまって
+ * 1.00 のような嘘の値が出る。下から順に合成する。
+ */
 async function readable(page, selectors) {
-  const got = await page.evaluate((sels) => sels.map((sel) => {
-    const el = document.querySelector(sel);
-    if (!el) return null;
-    const c = getComputedStyle(el);
-    let bgEl = el, bg = c.backgroundColor;
-    while (bgEl && (bg === 'rgba(0, 0, 0, 0)' || bg === 'transparent')) {
-      bgEl = bgEl.parentElement;
-      bg = bgEl ? getComputedStyle(bgEl).backgroundColor : 'rgb(255,255,255)';
-    }
-    return { sel, fg: c.color, bg };
-  }), selectors);
+  const got = await page.evaluate((sels) => {
+    const parse = (v) => {
+      const n = (v ?? '').match(/[\d.]+/g)?.map(Number) ?? [];
+      if (n.length < 3) return null;
+      return { r: n[0], g: n[1], b: n[2], a: n.length > 3 ? n[3] : 1 };
+    };
+    /** 上を下に重ねる。a は上の不透明度。 */
+    const over = (top, bottom) => ({
+      r: top.r * top.a + bottom.r * (1 - top.a),
+      g: top.g * top.a + bottom.g * (1 - top.a),
+      b: top.b * top.a + bottom.b * (1 - top.a),
+      a: 1,
+    });
+    return sels.map((sel) => {
+      const el = document.querySelector(sel);
+      if (!el) return null;
+      // 自分から上に向かって、不透明な地に当たるまで層を集める
+      const layers = [];
+      for (let e = el; e; e = e.parentElement) {
+        const c = parse(getComputedStyle(e).backgroundColor);
+        if (!c || c.a === 0) continue;
+        layers.push(c);
+        if (c.a === 1) break;
+      }
+      // 最後まで不透明が無ければ白を敷く
+      let bg = layers.pop() ?? { r: 255, g: 255, b: 255, a: 1 };
+      while (layers.length) bg = over(layers.pop(), bg);
+      const fg = parse(getComputedStyle(el).color);
+      // 文字色自体が半透明なら、合成後の地に重ねる
+      const text = fg.a < 1 ? over(fg, bg) : fg;
+      const fmt = (c) => `rgb(${Math.round(c.r)}, ${Math.round(c.g)}, ${Math.round(c.b)})`;
+      return { sel, fg: fmt(text), bg: fmt(bg) };
+    });
+  }, selectors);
   return got.filter(Boolean);
 }
 
@@ -673,6 +702,20 @@ for (const scheme of ['light', 'dark']) {
     assert(light === (scheme === 'light'), `${scheme} なのに地が逆: ${bodyBg}`);
     assert(r.errors.length === 0, `エラー: ${r.errors.join(' / ')}`);
     await r.page.close();
+  });
+
+  await t(`状態の表示が ${scheme} で読める`, async () => {
+    // 状態は色だけでなく文字でも示している。その文字が地から浮いていないと
+    // 「受付中なのか停止中なのか」が読めない。--muted の 4.11:1 もここで見つけた。
+    const org = await makeLiveEvent(`状態配色の会 ${scheme}`, ['Track A'], scheme);
+    await org.page.locator('#tracks tr').nth(0).locator('.btn.stop').click();
+    await org.page.waitForFunction(
+      () => document.querySelectorAll('#tracks .pill.bad').length === 1, { timeout: 20000 });
+    for (const { sel, fg, bg } of await readable(org.page, ['#tracks .pill.bad', '.pill.mute'])) {
+      const ratio = contrast(rgb(fg), rgb(bg));
+      assert(ratio >= 4.5, `${sel} のコントラストが低い: ${ratio.toFixed(2)} (${fg} / ${bg})`);
+    }
+    await org.page.close();
   });
 
   await t(`投稿ページが ${scheme} で読める`, async () => {
@@ -734,16 +777,55 @@ await t('送信ボタンは指で押せる大きさがある', async () => {
   await page.close(); await org.page.close();
 });
 
-await t('件数は数字だけでなく文として読み上げる', async () => {
+await t('件数は数字だけでなく文になっている', async () => {
   // 「3」とだけ読まれても何のことか分からない
   const org = await makeLiveEvent('件数の会', ['Track A']);
   const { page } = await open(await speakerLink(org.page));
   await page.waitForFunction(
     () => /受付中/.test(document.getElementById('stateText')?.textContent ?? ''), { timeout: 20000 });
   const label = await page.locator('#countLabel');
-  assert(await label.getAttribute('role') === 'status', '状態として読み上げられない');
   assert(/件 届いています/.test((await label.textContent()).trim()), await label.textContent());
   await page.close(); await org.page.close();
+});
+
+await t('読み上げる場所は画面にひとつだけ', async () => {
+  // 登壇者の画面には毎秒書き換わる文字がある（最後のコメント N秒前）。
+  // それを読み上げ対象に入れると、登壇中ずっと喋り続けることになる。
+  const org = await makeLiveEvent('読み上げの会', ['Track A']);
+  const { page } = await open(await speakerLink(org.page));
+  await page.waitForFunction(
+    () => /受付中/.test(document.getElementById('stateText')?.textContent ?? ''), { timeout: 20000 });
+
+  const live = await page.evaluate(() =>
+    [...document.querySelectorAll('[role="status"], [aria-live]')]
+      .filter((e) => e.closest('[aria-hidden="true"]') === null)
+      .map((e) => e.id || e.className));
+  assert(live.length === 1, `読み上げ対象が複数ある: ${live.join(' / ')}`);
+  assert(live[0] === 'state', `読み上げ対象が状態ではない: ${live[0]}`);
+
+  // 毎秒書き換わる側が読み上げの木から外れていること
+  assert(await page.getAttribute('#stateSub', 'aria-hidden') === 'true',
+    '毎秒書き換わる文字が読み上げに入っている');
+  // 外に出しても、止められた理由は別の場所で読める
+  assert(await page.locator('#stoppedNote').count() === 1, '理由を読む場所が無い');
+  await page.close(); await org.page.close();
+});
+
+await t('終了したイベントもキーボードで開ける', async () => {
+  // 開催予定と終了済みで行の作りが分かれていて、終了済みだけ
+  // tabIndex と Enter が抜けていた（マウスでしか開けなかった）。
+  const org = await makeEventInBrowser('過去の会', [], '2020-01-01');
+  const list = await open(`${HOST}/organizer.html?emu=1`, { ctx: org.page.context() });
+  await list.page.waitForSelector('#newEventName', { state: 'visible', timeout: 25000 });
+  await list.page.waitForFunction(
+    () => document.querySelectorAll('#past tr').length > 0, { timeout: 20000 });
+  const row = list.page.locator('#past tr').first();
+  assert(await row.getAttribute('tabindex') === '0', '終了済みの行にフォーカスが当たらない');
+  await row.focus();
+  await list.page.keyboard.press('Enter');
+  await list.page.waitForFunction(
+    () => new URL(location.href).searchParams.get('e') !== null, { timeout: 20000 });
+  await list.page.close(); await org.page.close();
 });
 
 await t('表に見出しの対応と説明がある', async () => {

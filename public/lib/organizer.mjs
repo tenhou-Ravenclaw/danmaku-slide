@@ -92,18 +92,29 @@ export async function createOrganizer({ eventId, random = () => Math.random() } 
     return { upcoming, past };
   }
 
+  /**
+   * 押すと開く行。
+   *
+   * 1か所にまとめてある。前は開催予定と終了済みで別に書いていて、
+   * 終了済みのほうだけ tabIndex と Enter が抜けていた（マウスしか使えなかった）。
+   */
+  function openableRow(eventId, className) {
+    const tr = document.createElement('tr');
+    tr.className = className;
+    tr.tabIndex = 0;
+    const go = () => { location.href = withEnv(`./organizer.html?e=${encodeURIComponent(eventId)}`); };
+    tr.addEventListener('click', go);
+    tr.addEventListener('keydown', (e) => { if (e.key === 'Enter') go(); });
+    return tr;
+  }
+
   function paintList(rows) {
     const { upcoming, past } = splitByDate(rows);
 
     const up = el('upcoming');
     up.replaceChildren();
     for (const ev of upcoming) {
-      const tr = document.createElement('tr');
-      tr.className = 'clickable';
-      tr.tabIndex = 0;
-      const go = () => { location.href = withEnv(`./organizer.html?e=${encodeURIComponent(ev.id)}`); };
-      tr.addEventListener('click', go);
-      tr.addEventListener('keydown', (e) => { if (e.key === 'Enter') go(); });
+      const tr = openableRow(ev.id, 'clickable');
 
       const name = cell(tr); name.style.fontWeight = '600'; name.textContent = ev.name;
       cell(tr).textContent = formatDate(ev.heldOn) || '—';
@@ -127,11 +138,7 @@ export async function createOrganizer({ eventId, random = () => Math.random() } 
     const pastBody = el('past');
     pastBody.replaceChildren();
     for (const ev of past) {
-      const tr = document.createElement('tr');
-      tr.className = 'clickable done';
-      tr.addEventListener('click', () => {
-        location.href = withEnv(`./organizer.html?e=${encodeURIComponent(ev.id)}`);
-      });
+      const tr = openableRow(ev.id, 'clickable done');
       cell(tr).textContent = ev.name;
       const right = cell(tr);
       right.style.textAlign = 'right';
