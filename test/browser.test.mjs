@@ -382,6 +382,32 @@ await t('トラックを作ると QR と停止ボタンが出る', async () => {
   await page.close();
 });
 
+await t('トラックIDが画面に大きく出る', async () => {
+  // アドレスバーを読ませるのは不親切。何度も聞かれた。
+  const { page, errors, trackId } = await openConsoleWithNewTrack('ID Track');
+  await page.waitForFunction(
+    () => !document.getElementById('idBox')?.classList.contains('hidden'), { timeout: 15000 });
+  const shown = (await page.textContent('#trackId')).trim();
+  assert(shown === trackId, `URL のIDと違う: ${shown} vs ${trackId}`);
+  const size = await page.evaluate(() =>
+    parseFloat(getComputedStyle(document.getElementById('trackId')).fontSize));
+  assert(size >= 20, `小さすぎる: ${size}px`);
+  assert(await page.isVisible('#copyId'), 'コピーが無い');
+  assert(await page.isVisible('#openApp'), 'アプリで開くが無い');
+  assert(errors.length === 0, `エラー: ${errors.join(' / ')}`);
+  await page.close();
+});
+
+await t('「アプリで開く」の呼び先が danmaku:// になっている', async () => {
+  const { page, trackId } = await openConsoleWithNewTrack('App Track');
+  await page.waitForFunction(
+    () => document.getElementById('openApp')?.getAttribute('href')?.startsWith('danmaku:'),
+    { timeout: 15000 });
+  const href = await page.getAttribute('#openApp', 'href');
+  assert(href === `danmaku://track/${trackId}`, `呼び先が違う: ${href}`);
+  await page.close();
+});
+
 await t('生成した QR が実際に読み取れる', async () => {
   const { page } = await open(`${HOST}/speaker.html?emu=1`);
   await page.waitForFunction(

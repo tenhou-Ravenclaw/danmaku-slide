@@ -29,13 +29,14 @@
   }
   input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; border-color: transparent; }
 
-  button {
+  button, .btn {
     padding: .7rem 1.1rem; border: 0; border-radius: .55rem; font: inherit; font-weight: 600;
     background: var(--surface2); color: var(--ink); border: 1px solid var(--line); cursor: pointer;
+    text-decoration: none; display: inline-block; line-height: 1.4;
   }
-  button:hover:not(:disabled) { background: #23232f; }
+  button:hover:not(:disabled), .btn:hover { background: #23232f; }
   button:disabled { opacity: .4; cursor: default; }
-  button.primary { background: var(--accent); color: #0b0b12; border-color: transparent; }
+  button.primary, .btn.primary { background: var(--accent); color: #0b0b12; border-color: transparent; }
   /* 停止は荒らしへの最終手段。迷わず押せる大きさと色にする */
   button.stop { background: var(--stop); color: #1a0606; border-color: transparent;
                 font-size: 1.05rem; padding: 1rem 1.25rem; flex: 1 1 100%; }
@@ -56,6 +57,9 @@
   .hidden { display: none; }
   code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; background: var(--surface2);
          padding: .1rem .35rem; border-radius: .25rem; font-size: .85em; }
+  /* 何度も聞かれる値なので、探さなくていい大きさで出す */
+  .trackid { font-size: 1.5rem; font-weight: 700; letter-spacing: .08em;
+             padding: .5rem .9rem; border: 1px solid var(--line); user-select: all; }
 </style>
 
 <main>
@@ -100,6 +104,17 @@
       <button id="resume" class="resume hidden">投稿を再開する</button>
     </div>
     <p class="hint">荒らされたときの最終手段。押した瞬間から新しい投稿は拒否される。流れているものは消えない。</p>
+  </section>
+
+  <section id="idBox" class="hidden">
+    <h2>トラックID</h2>
+    <div class="row">
+      <code id="trackId" class="trackid"></code>
+      <button id="copyId">IDをコピー</button>
+      <a id="openApp" class="btn primary" href="#">アプリで開く</a>
+    </div>
+    <p class="hint">弾幕を重ねるアプリや Chrome 拡張には、このIDを渡す。
+      「アプリで開く」はアプリが入っていれば、IDが入った状態で立ち上がる。</p>
   </section>
 
   <section id="qrBox" class="hidden">

@@ -47,6 +47,10 @@
   <button id="go" class="idle">スライドに重ねる</button>
   <button id="halt" class="running ghost">重ねるのをやめる</button>
 
+  <p class="keys idle">
+    トラックIDは <a href="#" id="console">登壇者コンソール</a> で作ります
+  </p>
+
   <p class="keys">
     <kbd id="k1">⌘⇧C</kbd> クリックを通すかどうかを切り替える<br>
     <kbd id="k2">⌘⇧X</kbd> 終了する
@@ -88,6 +92,12 @@
     msg(`${r.trackId} に重ねている`, 'ok');
     document.body.dataset.running = '1';
   }
+
+  $('console').addEventListener('click', async (e) => {
+    e.preventDefault();
+    const origin = await window.shell.origin();
+    window.shell.openExternal(`${origin}/speaker.html`);
+  });
 
   $('go').addEventListener('click', go);
   $('track').addEventListener('keydown', (e) => { if (e.key === 'Enter') go(); });

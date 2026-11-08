@@ -77,6 +77,7 @@ export async function createConsole({ trackId, random = () => Math.random() } = 
   function render() {
     const exists = track !== null;
     toggle('createBox', !exists);
+    toggle('idBox', exists);
     toggle('liveBox', exists);
     toggle('stopBox', exists);
     toggle('qrBox', exists);
@@ -109,6 +110,7 @@ export async function createConsole({ trackId, random = () => Math.random() } = 
     painted = true;
     const url = postUrlFor(id);
     el('postUrl').textContent = url;
+    el('trackId').textContent = id;
     // SVG で持つ。印刷しても潰れないし、拡大しても粗くならない。
     const svg = await QRCode.toString(url, {
       type: 'svg', errorCorrectionLevel: 'M', margin: 2, width: 360,
@@ -158,6 +160,10 @@ export async function createConsole({ trackId, random = () => Math.random() } = 
     finally { el('resume').disabled = false; }
   });
 
+  el('copyId').addEventListener('click', () => copy(id, say, fail));
+  // アプリが入っていれば danmaku:// で立ち上がる。入っていなければ何も起きない。
+  // アンカーにしてあるのは、素直だし、呼び先を確かめられるから。
+  el('openApp').href = `danmaku://track/${encodeURIComponent(id)}`;
   el('copy').addEventListener('click', () => copy(postUrlFor(id), say, fail));
   el('copyOverlay').addEventListener('click', () => copy(overlayUrlFor(id), say, fail));
   el('openPost').addEventListener('click', () => window.open(postUrlFor(id), '_blank', 'noopener'));
