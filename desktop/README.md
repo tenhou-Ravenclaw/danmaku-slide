@@ -1,0 +1,69 @@
+# 透過ウィンドウシェル（貼り方C）
+
+スライドの上に透過ウィンドウを重ねる。**このシェルは弾幕を描かない。**
+配信済みの弾幕ページを透過ウィンドウで開くだけ。描画の実装を1本に保つのが
+このプロダクトの設計なので、ここに描画を持たせない。
+
+```bash
+npm run shell
+```
+
+開発中に別の配信先を見たいときは `DANMAKU_ORIGIN` で差し替える。
+
+```bash
+DANMAKU_ORIGIN=http://127.0.0.1:5055 npm run shell
+```
+
+## 操作
+
+| | |
+|---|---|
+| トラックID または 投稿URL | QR の URL をそのまま貼ってもいい |
+| 重ねる画面 | 拡張ディスプレイを繋いでいるときは投影先を選ぶ |
+| <kbd>⌘⇧C</kbd> / <kbd>Ctrl+Shift+C</kbd> | クリックを通すかどうかを切り替える |
+| <kbd>⌘⇧X</kbd> / <kbd>Ctrl+Shift+X</kbd> | 終了する |
+
+既定ではクリックを通す。弾幕の上からスライドを操作できる。
+
+## なぜこの設定なのか
+
+この組み合わせが貼り方Cの本体で、**どれか1つ外れただけで全画面のスライドショーの
+上に残らなくなる**。`test/shell/parse.test.mjs` で設定そのものを固定してある。
+
+| 設定 | 理由 |
+|---|---|
+| `setAlwaysOnTop(true, 'screen-saver')` | `floating` や `normal` では PowerPoint や Keynote の全画面に負ける |
+| `setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })` | macOS の Space をまたぐ |
+| `fullscreenable: false` | 全画面にすると OS が別の Space を作り、スライドの上に出られなくなる |
+| `focusable: false` | フォーカスを取るとスライドショーが一時停止する |
+| `backgroundThrottling: false` | 画面が隠れると描画が止まり、弾幕が固まる |
+| `transparent: true` + `backgroundColor: '#00000000'` | 背景を抜く |
+| `app.dock.hide()` | Dock に出るとフォーカスを取ってしまう場面がある |
+
+## PowerPoint が前に出てくる件
+
+PowerPoint のスライドショーは**自分を最前面に主張し続ける**ので、一度重ねても
+しばらくすると裏に回ることがある。1.5秒ごとに押し戻している。
+
+```js
+overlayWin.setAlwaysOnTop(true, 'screen-saver');
+overlayWin.moveTop();
+```
+
+奪い返すのは重なり順だけで、**フォーカスは取らない**。フォーカスを取ると
+スライドショーが一時停止してしまう。
+
+それでも負ける場合の逃げ道が3つある。
+
+1. **閲覧表示（Reading View）で出す。** 通常ウィンドウになるので最前面を主張しない
+2. **PowerPoint を投影先ではない画面に置く。** 投影先には弾幕だけを重ねる
+3. **貼り方B（キャプチャ合成）に切り替える。** 最前面の奪い合いが起きない
+
+## Electron を選んだ理由
+
+Tauri も検討したが、macOS で同じことをするには Rust と AppKit のシムを書いたうえで
+`macOSPrivateApi` を有効にする必要があり、Electron の2行と釣り合わない。
+WKWebView になることで、ここまでの検証をやり直すことにもなる。
+
+配布サイズは Electron のほうが大きいが、**このアプリは登壇者1人が自分の端末で
+動かすもの**で、配布サイズが使われるかどうかを左右しない。

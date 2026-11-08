@@ -24,7 +24,14 @@ LT で弾幕を流す既存のやり方は、どれかが必ず欠ける。
 | B | 画面キャプチャとブラウザ内で合成 | 投影先が1枚で、スピーカーノートを手元に残したいとき |
 | C | **透過ウィンドウを最前面に重ねる** | スライドツールを問わない既定の方式 |
 
-C が既定。macOS / Windows の両方で、全画面のスライドショーの上に残ることを確認している。
+C が既定。[desktop/](desktop/) にシェルがある。
+
+```bash
+npm run shell
+```
+
+「全画面のスライドショーの上に残るか」は実機と本物のスライドツールが要るので
+自動化できない。手順を [CHECKLIST.md](CHECKLIST.md) に固定してある。
 
 ## 構成
 
@@ -58,11 +65,27 @@ npm install
 npm run config        # Firebase の Web 設定を生成（初回と設定変更時）
 
 npm run dev           # エミュレータ（Firestore / Auth / Hosting）
-npm run test:rules    # Rules のテスト（エミュレータ / 42件）
-npm run test:e2e      # Rules のテスト（本番 / 27件、自分で後片付けする）
+npm run shell         # 透過ウィンドウシェル（貼り方C）
+
+npm run review        # ローカルレビュー一式（CI と同じもの）
+npm run test:e2e      # 本番に対する Rules の確認（27件、自分で後片付けする）
+
 npm run preview       # 使い捨てURLにプレビュー配信
 npm run deploy        # Hosting と Rules を本番へ
 ```
+
+## テスト
+
+| | |
+|---|---|
+| 純粋ロジック | 40件 |
+| 透過シェルの設定 | 21件 |
+| Security Rules | 42件（エミュレータ）/ 27件（本番） |
+| Firestore 境界 | 14件 |
+| 実ブラウザ | 24件 |
+
+ほかに Rules の不変条件ガード15件、秘密情報の履歴スキャン、依存の脆弱性を
+配信物と開発ツールで基準を分けて見ている。詳しくは [CONTRIBUTING.md](CONTRIBUTING.md)。
 
 Rules のテストには JDK が必要（`brew install openjdk`）。
 

@@ -81,6 +81,20 @@ jobs:
           node-version: '22'
       - run: npm run test:unit
 
+  shell:
+    name: 透過シェルの設定
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      # Electron は画面が要る。CI では仮想ディスプレイの上で動かす。
+      - run: sudo apt-get update && sudo apt-get install -y xvfb
+      - run: xvfb-run --auto-servernum npm run test:shell
+
   guard:
     name: Rules の不変条件と生成物のガード
     runs-on: ubuntu-latest
