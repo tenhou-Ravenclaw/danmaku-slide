@@ -3,7 +3,7 @@
 // 観客にもサインインさせる。画面もクリックも増えないが、UID が手に入るので
 // 「UID ごとのレート制限」を Security Rules だけで書けるようになる。
 // 認証を要求しない設計では、防御は認証ではなく形の制約でやるしかない。
-import * as sdk from '../vendor/lib.js';
+import * as sdk from '../vendor/entry.js';
 import { firebaseConfig } from '../firebase-config.js';
 import { createBus } from './bus.mjs';
 

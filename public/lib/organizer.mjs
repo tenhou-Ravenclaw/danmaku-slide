@@ -4,7 +4,7 @@
 // 弾幕そのものやコメントの中身は出さない。運営が見たいのは「配れているか」だけ。
 import { connect, start } from './app.mjs';
 import { createEventBus, createBus } from './bus.mjs';
-import { QRCode } from '../vendor/lib.js';
+import { QRCode } from '../vendor/entry.js';
 import {
   newEventId, newTrackId, newHandoffCode, slugFromName,
   stageUrlFor, postUrlFor, eventUrlFor, shortUrl, formatDate, withEnv,

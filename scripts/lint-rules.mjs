@@ -46,7 +46,7 @@ for (const [label, needle] of invariants) {
 }
 
 // --- 生成物・秘密情報が git に入っていないか ----------------------------
-for (const f of ['public/firebase-config.js', 'public/vendor/lib.js', '.firebase-config.json', '.env']) {
+for (const f of ['public/firebase-config.js', 'public/vendor/entry.js', '.firebase-config.json', '.env']) {
   let tracked = false;
   try {
     execFileSync('git', ['ls-files', '--error-unmatch', f], { stdio: 'ignore' });

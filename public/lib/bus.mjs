@@ -1,7 +1,7 @@
 // Firestore との境界。描画も DOM も持たない。
 //
 // SDK を import せず引数で受け取る。ブラウザは同一オリジンに束ねた
-// public/vendor/lib.js を渡し、テストは npm の firebase/firestore を渡す。
+// public/vendor/entry.js を渡し、テストは npm の firebase/firestore を渡す。
 // こうしないと、ブラウザ向けバンドルを Node から読むことになってテストが書けない。
 
 /** Rules 側と同じ上限。UI でも同じ値を使う。 */

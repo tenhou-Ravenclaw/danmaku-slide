@@ -15,6 +15,9 @@ if (!existsSync('.firebase-config.json')) {
 //
 // 名前が固定のまま immutable で配ると、一度読んだ人は更新を受け取れない。
 // ハッシュ付きの本体を長期キャッシュし、名前が固定の薄い入口だけ毎回確かめさせる。
+//
+// 入口は entry.js。かつて lib.js を immutable 1年で配ってしまったので、
+// その名前は一度開いた人のブラウザで取り直されない。二度と使わない。
 const result = await build({
   entryPoints: ['src/vendor.js'],
   bundle: true,
@@ -36,10 +39,11 @@ mkdirSync('public/vendor', { recursive: true });
 for (const f of readdirSync('public/vendor')) {
   if (/^lib\.[0-9a-f]+\.js$/.test(f) && f !== name) rmSync(`public/vendor/${f}`);
 }
+rmSync('public/vendor/lib.js', { force: true });   // 汚れた名前は置かない
 writeFileSync(`public/vendor/${name}`, code);
 // 入口。これだけが名前固定で、毎回確かめられる（数十バイト）。
-writeFileSync('public/vendor/lib.js',
+writeFileSync('public/vendor/entry.js',
   `// 生成物。中身は ./${name} にある。\nexport * from './${name}';\n`);
 
 console.log(`✓ public/vendor/${name}  ${(code.length / 1024).toFixed(1)} KB`);
-console.log(`✓ public/vendor/lib.js   入口（ハッシュ付き本体を指す）`);
+console.log(`✓ public/vendor/entry.js  入口（ハッシュ付き本体を指す）`);
