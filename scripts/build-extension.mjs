@@ -22,10 +22,22 @@ const outDir = forTest ? '.ext-test' : (forDiag ? '.ext-diag' : 'extension');
 const matches = ['https://docs.google.com/presentation/*'];
 if (forTest || forDiag) matches.push('http://127.0.0.1/*', 'http://localhost/*');
 
+// ビルドのたびに版を上げる。固定だと chrome://extensions の表示が変わらず、
+// 読み込み直したのか古いままなのかを目で確かめられない。
+// version は数値4つまで（各 0-65535）なので、日付と時刻から作る。
+const now = new Date();
+const p2 = (n) => String(n).padStart(2, '0');
+const stamp = `${now.getFullYear()}-${p2(now.getMonth() + 1)}-${p2(now.getDate())} ` +
+              `${p2(now.getHours())}:${p2(now.getMinutes())}:${p2(now.getSeconds())}`;
+const version = `0.1.${Number(`${p2(now.getMonth() + 1)}${p2(now.getDate())}`)}.` +
+                `${Number(`${p2(now.getHours())}${p2(now.getMinutes())}`)}`;
+
 const manifest = {
   manifest_version: 3,
   name: '弾幕スライド',
-  version: '0.1.0',
+  version,
+  // chrome://extensions にそのまま出る。どのビルドが入っているかが一目で分かる。
+  version_name: `${version}（${stamp}${forTest ? ' テスト用' : forDiag ? ' 切り分け用' : ''}）`,
   description: 'Google スライドの発表に弾幕を重ねる',
   permissions: ['storage', 'tabs'],
   host_permissions: [
@@ -61,7 +73,7 @@ const r = await build({
   legalComments: 'none',
   define: {
     __FIREBASE_CONFIG__: JSON.stringify(config),
-    __BUILT_AT__: JSON.stringify(new Date().toISOString().replace('T', ' ').slice(0, 19)),
+    __BUILT_AT__: JSON.stringify(`${version}  ${stamp}`),
     __USE_EMULATOR__: String(forTest),
   },
   metafile: true,
@@ -84,4 +96,6 @@ if (!forTest && !forDiag) {
   }
 }
 
-console.log(`✓ ${out[0]}  ${(out[1].bytes / 1024).toFixed(0)} KB${forTest ? '（テスト用）' : forDiag ? '（切り分け用: 本番に繋ぐ）' : ''}`);
+console.log(`✓ ${out[0]}  ${(out[1].bytes / 1024).toFixed(0)} KB`);
+console.log(`  版 ${version}  ${stamp}${forTest ? '（テスト用）' : forDiag ? '（切り分け用: 本番に繋ぐ）' : ''}`);
+console.log(`  chrome://extensions にこの版が出ていなければ、読み込み直せていない`);

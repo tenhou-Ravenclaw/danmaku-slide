@@ -3,6 +3,13 @@
 // 「流れない」とき、原因は拡張・ページ・トラックのどれかにある。
 // 画面の隅のバッジは数秒で消えるので、いつでも押して調べられる口をここに置く。
 const el = (id) => document.getElementById(id);
+
+// どのビルドが入っているかを最初に出す。
+// 「作り直したつもりで古いものを見ている」のがいちばん切り分けづらい。
+{
+  const m = chrome.runtime.getManifest();
+  el('ver').textContent = `版 ${m.version_name ?? m.version}`;
+}
 const msg = (t, k = '') => { el('msg').textContent = t; el('msg').dataset.kind = k; };
 
 function parseTrackId(input) {
@@ -33,7 +40,7 @@ function detail(obj) {
     大きさ: obj.size,
     置き場所: obj.parent,
     全画面: obj.fullscreen ?? 'なし',
-    ビルド: obj.builtAt,
+    ページ側の版: obj.builtAt,
   };
   for (const [k, v] of Object.entries(rows)) {
     if (v === null || v === undefined) continue;

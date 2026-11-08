@@ -98,6 +98,13 @@ await t('拡張が読み込まれている', async () => {
   assert(EXT_ID.length > 10, `拡張IDが変: ${EXT_ID}`);
 });
 
+await t('版にビルド時刻が入っている（古いものを見ていないか分かる）', async () => {
+  const m = await sw.evaluate(() => chrome.runtime.getManifest());
+  assert(m.version !== '0.1.0', `版が固定されている: ${m.version}`);
+  assert(/\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}/.test(m.version_name ?? ''),
+    `版に時刻が入っていない: ${m.version_name}`);
+});
+
 await t('popup で URL を貼ってもトラックIDを拾う', async () => {
   const page = await ctx.newPage();
   await page.goto(`chrome-extension://${EXT_ID}/popup.html`);
@@ -239,7 +246,9 @@ await t('popup が動いている状態を見分ける', async () => {
   // 詳細にトラック名とビルド時刻が出る
   const d = await pop.textContent('#detail');
   assert(/Extension Track/.test(d), `トラック名が無い: ${d}`);
-  assert(/ビルド/.test(await pop.textContent('#detail')) || d.length > 0, '詳細が空');
+  assert(d.length > 0, '詳細が空');
+  // popup の先頭に版が出ている
+  assert(/^版 /.test((await pop.textContent('#ver')).trim()), await pop.textContent('#ver'));
   await pop.close(); await page.close();
 });
 

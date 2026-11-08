@@ -6,7 +6,10 @@
     font: 13px/1.6 -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Noto Sans JP", sans-serif; }
   h1 { margin: 0 0 2px; font-size: .7rem; font-weight: 600; letter-spacing: .09em;
        text-transform: uppercase; color: #8a8a99; }
-  p.lead { margin: 0 0 12px; font-size: .78rem; color: #8a8a99; }
+  p.lead { margin: 0 0 6px; font-size: .78rem; color: #8a8a99; }
+  /* 古いものを見ていないかを最初に確かめられるように、いちばん上に出す */
+  #ver { margin: 0 0 12px; font: .71rem/1.5 ui-monospace, Menlo, monospace; color: #6a6a7a;
+         background: #15151d; border: 1px solid #2a2a38; border-radius: 5px; padding: 4px 8px; }
   label { display: block; font-size: .72rem; color: #8a8a99; margin-bottom: 4px; }
   input { width: 100%; padding: 8px 10px; border-radius: 6px; font: inherit;
     background: #1c1c26; color: #e8e8ef; border: 1px solid #2a2a38; box-sizing: border-box; }
@@ -36,6 +39,7 @@
 
 <h1>弾幕スライド</h1>
 <p class="lead">Google スライドの発表に弾幕を重ねます</p>
+<p id="ver">版を確認中…</p>
 
 <label for="track">トラックID または 運営からのURL</label>
 <input id="track" placeholder="abc23xyz" autocomplete="off" spellcheck="false">
