@@ -10,8 +10,15 @@ Firestore 境界・実ブラウザ・Electron の設定）。
 ## 準備
 
 ```bash
-npm run shell
+npm run shell            # ソースから直接起動する（開発中はこれが早い）
+npm run pack:app         # いまの OS のアプリを作る
+npm run pack:app -- --all  # mac と Windows の両方を作る（mac から Windows 版も出る）
 ```
+
+`--all` で `dist/` に4つの zip が出る（darwin arm64/x64、win32 arm64/x64）。
+**Windows 機での確認には、mac で作った `win32-x64` を持っていけばいい。**
+署名していないので、Windows は SmartScreen の「詳細情報」→「実行」、
+macOS は初回だけ右クリック→開く が要る。
 
 1. 運営の画面（`/organizer.html`）で Google サインインし、イベントとトラックを作る
 2. 「全トラックで投稿を受け付ける」を押す（作った直後は受付前）
