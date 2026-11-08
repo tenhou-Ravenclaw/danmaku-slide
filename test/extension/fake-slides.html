@@ -1,0 +1,24 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>模擬スライド</title>
+<!-- Google スライドの発表ページの代わり。差し込みとクリック透過を見るためだけのもの。 -->
+<style>
+  html, body { margin: 0; height: 100%; background: #16213f; }
+  #deck { position: fixed; inset: 0; display: grid; place-items: center;
+    color: #fff; font: 700 48px/1.4 sans-serif; cursor: pointer; user-select: none; }
+  #count { font-size: 24px; font-weight: 400; opacity: .7; margin-top: 16px; }
+</style>
+<div id="deck">
+  <div>
+    <div>スライド本文</div>
+    <div id="count">クリック回数: 0</div>
+  </div>
+</div>
+<script>
+  // クリックがここまで届けば「透けている」
+  window.__clicks = 0;
+  document.getElementById('deck').addEventListener('click', () => {
+    window.__clicks++;
+    document.getElementById('count').textContent = 'クリック回数: ' + window.__clicks;
+  });
+</script>

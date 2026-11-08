@@ -5,6 +5,8 @@
   "scripts": {
     "config": "node scripts/gen-config.mjs",
     "build": "node scripts/build.mjs",
+    "build:ext": "node scripts/build-extension.mjs",
+    "pack:ext": "npm run build:ext && cd extension && zip -q -r ../danmaku-slide-extension.zip . -x \".*\" && cd .. && echo \"danmaku-slide-extension.zip\"",
     "review": "node scripts/review.mjs",
     "dev": "firebase emulators:start",
     "shell": "electron desktop/main.cjs",
@@ -13,6 +15,7 @@
     "test:unit": "node --test test/unit/",
     "test:bus": "firebase emulators:exec --only firestore --project bus-lab 'node test/bus.test.mjs'",
     "test:browser": "npm run build && firebase emulators:exec --only firestore,auth,hosting 'node test/browser.test.mjs'",
+    "test:ext": "EXT_TEST=1 npm run build:ext && firebase emulators:exec --only firestore,auth 'node test/extension/extension.test.mjs'",
     "test:shell": "node --test test/shell/",
     "lint": "npm run lint:rules && npm run lint:secrets",
     "test:rules": "firebase emulators:exec --only firestore --project danmaku-slide-test 'node test/rules.test.mjs'",

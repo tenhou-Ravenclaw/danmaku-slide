@@ -1,0 +1,181 @@
+// Chrome 拡張を実際に読み込んで、発表ページに弾幕が差し込まれるかを見る。
+//
+// 実物の Google スライドは自動で開けないので、同じ URL 構造の模擬ページを使う。
+// 確かめたいのは「差し込めるか」と「クリックが透けるか」で、
+// どちらも相手が Google のページかどうかには依存しない。
+import { chromium } from 'playwright';
+import { createServer } from 'node:http';
+import { readFile } from 'node:fs/promises';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import * as sdk from 'firebase/firestore';
+import { initializeApp } from 'firebase/app';
+import { getAuth, signInAnonymously, connectAuthEmulator } from 'firebase/auth';
+import { createBus } from '../../public/lib/bus.mjs';
+
+const here = dirname(fileURLToPath(import.meta.url));
+const EXT = join(here, '../../extension');
+const CONFIG = JSON.parse(await readFile(join(here, '../../.firebase-config.json'), 'utf8'));
+
+let pass = 0, fail = 0;
+const rows = [];
+async function t(name, fn) {
+  try { await fn(); pass++; rows.push(['ok  ', name, '']); }
+  catch (e) { fail++; rows.push([' NG ', name, String(e?.message ?? e).slice(0, 200)]); }
+}
+const assert = (c, m) => { if (!c) throw new Error(m); };
+const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+
+// 発表ページと同じ形の URL で模擬ページを配る
+const PORT = 5097;
+const srv = createServer(async (req, res) => {
+  if (/\/presentation\/d\/[^/]+\/present/.test(req.url)) {
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    res.end(await readFile(join(here, 'fake-slides.html')));
+    return;
+  }
+  if (/\/presentation\/d\/[^/]+\/edit/.test(req.url)) {
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    res.end('<!doctype html><meta charset="utf-8"><title>編集画面</title><body>編集中</body>');
+    return;
+  }
+  res.writeHead(404); res.end('x');
+}).listen(PORT);
+const PRESENT = `http://127.0.0.1:${PORT}/presentation/d/deck1/present`;
+const EDIT = `http://127.0.0.1:${PORT}/presentation/d/deck1/edit`;
+
+// --- エミュレータ側にトラックを作る --------------------------------------
+let seq = 0;
+async function actor(trackId) {
+  const app = initializeApp({ ...CONFIG, authDomain: 'localhost' }, `x${++seq}`);
+  const db = sdk.initializeFirestore(app, {});
+  sdk.connectFirestoreEmulator(db, '127.0.0.1', 8181);
+  const auth = getAuth(app);
+  connectAuthEmulator(auth, 'http://127.0.0.1:9099', { disableWarnings: true });
+  const { user } = await signInAnonymously(auth);
+  return createBus(sdk, { db, trackId, uid: user.uid });
+}
+const TRACK = 'ext-track';
+const sp = await actor(TRACK);
+await sp.createTrack({ name: 'Extension Track' });
+
+// --- 拡張を読み込んだブラウザ --------------------------------------------
+const profile = await mkdtemp(join(tmpdir(), 'danmaku-ext-'));
+const ctx = await chromium.launchPersistentContext(profile, {
+  headless: false,   // 拡張は headless では読み込まれない
+  args: [`--disable-extensions-except=${EXT}`, `--load-extension=${EXT}`],
+  viewport: { width: 1280, height: 720 },
+});
+
+const sw = ctx.serviceWorkers()[0]
+  ?? await ctx.waitForEvent('serviceworker', { timeout: 20000 });
+const EXT_ID = new URL(sw.url()).host;
+
+/** popup を実際に操作してトラックを入れる。本番と同じ道を通す。 */
+async function setTrack(id) {
+  const page = await ctx.newPage();
+  await page.goto(`chrome-extension://${EXT_ID}/popup.html`);
+  await page.fill('#track', id);
+  await page.click('#save');
+  await page.waitForFunction(() => document.getElementById('msg').dataset.kind === 'ok',
+    { timeout: 10000 });
+  await page.close();
+}
+
+await t('拡張が読み込まれている', async () => {
+  assert(EXT_ID.length > 10, `拡張IDが変: ${EXT_ID}`);
+});
+
+await t('popup で URL を貼ってもトラックIDを拾う', async () => {
+  const page = await ctx.newPage();
+  await page.goto(`chrome-extension://${EXT_ID}/popup.html`);
+  await page.fill('#track', 'https://example.test/post.html?track=fromurl');
+  await page.click('#save');
+  await page.waitForFunction(() => /fromurl/.test(document.getElementById('msg').textContent),
+    { timeout: 10000 });
+  await page.close();
+});
+
+await t('popup は不正な入力を弾く', async () => {
+  const page = await ctx.newPage();
+  await page.goto(`chrome-extension://${EXT_ID}/popup.html`);
+  await page.fill('#track', 'a b c');
+  await page.click('#save');
+  await page.waitForFunction(() => document.getElementById('msg').dataset.kind === 'bad',
+    { timeout: 10000 });
+  await page.close();
+});
+
+await setTrack(TRACK);
+
+await t('発表ページに弾幕の canvas が差し込まれる', async () => {
+  const page = await ctx.newPage();
+  await page.goto(PRESENT);
+  await page.waitForFunction(() => document.getElementById('danmaku-slide-overlay') !== null,
+    { timeout: 15000 });
+  const css = await page.evaluate(() => {
+    const c = getComputedStyle(document.getElementById('danmaku-slide-overlay'));
+    return { pe: c.pointerEvents, pos: c.position, z: c.zIndex };
+  });
+  assert(css.pe === 'none', `クリックが透けない: pointer-events=${css.pe}`);
+  assert(css.pos === 'fixed', `position=${css.pos}`);
+  assert(Number(css.z) > 1000000, `z-index が低い: ${css.z}`);
+  await page.close();
+});
+
+await t('編集画面には差し込まない', async () => {
+  const page = await ctx.newPage();
+  await page.goto(EDIT);
+  await sleep(1200);
+  assert(await page.evaluate(() => document.getElementById('danmaku-slide-overlay') === null),
+    '編集画面に差し込んでいる');
+  await page.close();
+});
+
+await t('弾幕の上からクリックがスライドに届く', async () => {
+  const page = await ctx.newPage();
+  await page.goto(PRESENT);
+  await page.waitForFunction(() => document.getElementById('danmaku-slide-overlay') !== null,
+    { timeout: 15000 });
+  // canvas の真ん中を押す。透けていればスライド側が数える。
+  await page.mouse.click(640, 360);
+  await page.mouse.click(640, 360);
+  await page.waitForFunction(() => window.__clicks === 2, { timeout: 5000 });
+  assert(/クリック回数: 2/.test(await page.textContent('#count')), await page.textContent('#count'));
+  await page.close();
+});
+
+await t('投稿するとスライドの上に描かれる', async () => {
+  const page = await ctx.newPage();
+  await page.goto(PRESENT);
+  await page.waitForFunction(() => document.getElementById('danmaku-slide-overlay') !== null,
+    { timeout: 15000 });
+  await sleep(1500);   // 匿名サインインと購読
+
+  const before = await page.evaluate(() => {
+    const c = document.getElementById('danmaku-slide-overlay');
+    const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
+    let n = 0; for (let i = 3; i < d.length; i += 4) if (d[i] > 0) n++;
+    return n;
+  });
+  assert(before === 0, `投稿前から描かれている: ${before}`);
+
+  const po = await actor(TRACK);
+  await po.post('拡張から流れる');
+  await page.waitForFunction(() => {
+    const c = document.getElementById('danmaku-slide-overlay');
+    const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
+    for (let i = 3; i < d.length; i += 4) if (d[i] > 0) return true;
+    return false;
+  }, { timeout: 25000 });
+  await page.close();
+});
+
+await ctx.close();
+await rm(profile, { recursive: true, force: true });
+srv.close();
+for (const [st, name, msg] of rows) console.log(`  ${st} ${name}${msg ? '\n         -> ' + msg : ''}`);
+console.log(`\n${pass} passed, ${fail} failed`);
+process.exit(fail ? 1 : 0);
