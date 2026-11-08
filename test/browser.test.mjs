@@ -632,6 +632,62 @@ await t('ブラウザ側で共有を止めても固まったまま映らない',
   await ctx.close();
 });
 
+// --- 帯で浮かせる（Document PiP）---------------------------------------
+await t('帯で浮かせると弾幕が別の窓へ移る', async () => {
+  const { page, errors } = await open(`${HOST}/overlay.html?emu=1&track=${TRACK}`);
+  await page.waitForFunction(
+    () => /Browser Track/.test(document.getElementById('hud')?.textContent ?? ''),
+    { timeout: 20000 });
+
+  const supported = await page.evaluate(() => window.__overlay.pip.isSupported());
+  assert(supported, 'Document PiP に対応していない');
+
+  await page.evaluate(() => document.getElementById('float').click());
+  await page.waitForFunction(() => window.__overlay.isFloating === true, { timeout: 15000 });
+
+  // canvas が元のページから抜けて、行数も新しい窓の高さで測り直されている
+  const moved = await page.evaluate(() => ({
+    inPage: document.getElementById('stage') !== null,
+    lanes: window.__overlay.flow.laneCount,
+  }));
+  assert(!moved.inPage, 'canvas が元のページに残っている');
+  assert(moved.lanes >= 1, `行数が取れていない: ${moved.lanes}`);
+  assert(errors.length === 0, `エラー: ${errors.join(' / ')}`);
+  await page.close();
+});
+
+await t('浮かせた帯にも投稿が流れる', async () => {
+  const tA = 'pip-track';
+  const sp = await actor(tA);
+  await sp.createTrack({ name: 'PiP Track' });
+
+  const { page } = await open(`${HOST}/overlay.html?emu=1&track=${tA}`);
+  await page.waitForFunction(
+    () => /PiP Track/.test(document.getElementById('hud')?.textContent ?? ''),
+    { timeout: 20000 });
+  await page.evaluate(() => document.getElementById('float').click());
+  await page.waitForFunction(() => window.__overlay.isFloating === true, { timeout: 15000 });
+
+  const po = await actor(tA);
+  await po.post('帯にも流れる');
+  await page.waitForFunction(() => (window.__overlay?.flow?.activeCount ?? 0) > 0, { timeout: 20000 });
+  await page.close();
+});
+
+await t('帯をやめると弾幕が元のページへ戻る', async () => {
+  const { page } = await open(`${HOST}/overlay.html?emu=1&track=${TRACK}`);
+  await page.waitForFunction(
+    () => /Browser Track/.test(document.getElementById('hud')?.textContent ?? ''),
+    { timeout: 20000 });
+  await page.evaluate(() => document.getElementById('float').click());
+  await page.waitForFunction(() => window.__overlay.isFloating === true, { timeout: 15000 });
+  await page.evaluate(() => window.__overlay.unfloat());
+  await page.waitForFunction(() => window.__overlay.isFloating === false, { timeout: 15000 });
+  assert(await page.evaluate(() => document.getElementById('stage') !== null),
+    'canvas が戻っていない');
+  await page.close();
+});
+
 await browser.close();
 await capBrowser.close();
 for (const [st, name, msg] of rows) console.log(`  ${st} ${name}${msg ? '\n         -> ' + msg : ''}`);

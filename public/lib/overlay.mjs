@@ -6,6 +6,7 @@ import { Renderer } from './renderer.mjs';
 import { connect } from './app.mjs';
 import * as capture from './capture.mjs';
 import * as screens from './screens.mjs';
+import * as pip from './pip.mjs';
 
 export function createOverlay({ canvas, hud, video = null, trackId, capturing = false }) {
   const flow = new DanmakuFlow();
@@ -22,9 +23,12 @@ export function createOverlay({ canvas, hud, video = null, trackId, capturing = 
   let sessionKey = null;   // sessionStartedAt が変わったら購読を張り替える
   let raf = 0;
 
+  // 描画先。PiP に移すと window が変わるので、どこを測るかも変わる。
+  let host = typeof window !== 'undefined' ? window : null;
+
   function fit() {
-    const w = window.innerWidth;
-    const h = window.innerHeight;
+    const w = host?.innerWidth ?? window.innerWidth;
+    const h = host?.innerHeight ?? window.innerHeight;
     renderer.resize(w, h, window.devicePixelRatio || 1);
     flow.resize(w, h);
   }
@@ -36,7 +40,7 @@ export function createOverlay({ canvas, hud, video = null, trackId, capturing = 
     if (stream && video && video.videoWidth > 0) {
       // 画面の大きさもスライドの大きさも変わり得るので、毎フレーム出し直す
       const fit = capture.fitRect(video.videoWidth, video.videoHeight,
-        window.innerWidth, window.innerHeight);
+        host?.innerWidth ?? window.innerWidth, host?.innerHeight ?? window.innerHeight);
       backdrop = { source: video, ...fit };
     }
     renderer.draw(flow.step(tMs), backdrop);
@@ -157,8 +161,33 @@ export function createOverlay({ canvas, hud, video = null, trackId, capturing = 
   }
 
   let onCaptureChange = null;
+  let floating = null;
+
+  /** 弾幕だけを最前面の小窓へ浮かせる。スライドツールを選ばない代わりに帯になる。 */
+  async function floatOut({ height = 160 } = {}) {
+    if (floating) return { ok: true };
+    try {
+      floating = await pip.float(canvas, {
+        height,
+        onClose: () => { floating = null; host = window; fit(); onFloatChange?.(false); },
+      });
+      host = floating.window;
+      host.addEventListener('resize', fit);
+      fit();
+      onFloatChange?.(true);
+      return { ok: true };
+    } catch (e) {
+      return { ok: false, reason: e?.message ?? String(e) };
+    }
+  }
+
+  function unfloat() { floating?.close(); }
+  let onFloatChange = null;
 
   return {
+    floatOut, unfloat, pip,
+    get isFloating() { return floating !== null; },
+    onFloatChange(fn) { onFloatChange = fn; },
     flow, renderer,
     pickSlide, dropSlide,
     get hasSlide() { return stream !== null; },

@@ -34,6 +34,7 @@
     "@grpc/grpc-js": "^1.14.7"
   },
   "dependencies": {
+    "pdfjs-dist": "^6.5.438",
     "qrcode": "^1.5.4"
   }
 }
