@@ -29,11 +29,14 @@
   --muted: #5a6478;
   --accent: #1f44c8;
   --accent-ink: #ffffff;
+  --accent-hover: #17349b;
   --good: #0b7a4b;
   --good-bg: #e3f6ec;
   --warn: #8a5a00;
   --warn-bg: #fdf1dc;
   --bad: #b3261e;
+  --bad-ink: #ffffff;
+  --bad-hover: #8f1e18;
   --bad-bg: #fdecea;
 }
 
@@ -50,11 +53,14 @@
     --muted: #8a94a8;
     --accent: #7f9bff;
     --accent-ink: #0b0d12;
+    --accent-hover: #9ab0ff;
     --good: #5fd39a;
     --good-bg: rgba(95, 211, 154, .14);
     --warn: #ffc46b;
     --warn-bg: rgba(255, 196, 107, .14);
     --bad: #ff7b7b;
+    --bad-ink: #2b0b08;
+    --bad-hover: #ff9898;
     --bad-bg: rgba(255, 123, 123, .14);
   }
 }
@@ -72,11 +78,14 @@
   --muted: #8a94a8;
   --accent: #7f9bff;
   --accent-ink: #0b0d12;
+  --accent-hover: #9ab0ff;
   --good: #5fd39a;
   --good-bg: rgba(95, 211, 154, .14);
   --warn: #ffc46b;
   --warn-bg: rgba(255, 196, 107, .14);
   --bad: #ff7b7b;
+  --bad-ink: #2b0b08;
+  --bad-hover: #ff9898;
   --bad-bg: rgba(255, 123, 123, .14);
 }
 
@@ -96,11 +105,14 @@
   --muted: #8a94a8;
   --accent: #7f9bff;
   --accent-ink: #0b0d12;
+  --accent-hover: #9ab0ff;
   --good: #5fd39a;
   --good-bg: rgba(95, 211, 154, .14);
   --warn: #ffc46b;
   --warn-bg: rgba(255, 196, 107, .14);
   --bad: #ff7b7b;
+  --bad-ink: #2b0b08;
+  --bad-hover: #ff9898;
   --bad-bg: rgba(255, 123, 123, .14);
 }
 
@@ -138,11 +150,22 @@ textarea:focus-visible, select:focus-visible, [tabindex]:focus-visible {
   font: inherit; font-weight: 600; cursor: pointer; text-decoration: none;
   white-space: nowrap;
 }
-.btn:hover:not(:disabled) { background: var(--surface2); }
 .btn:disabled { opacity: .45; cursor: default; }
 .btn.primary { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
-.btn.danger  { background: var(--bad); color: #fff; border-color: transparent; }
+.btn.danger  { background: var(--bad); color: var(--bad-ink); border-color: transparent; }
 .btn.quiet   { background: transparent; border-color: transparent; color: var(--accent); padding: .3rem .4rem; }
+
+/* ホバーは地と文字を必ず対で決める。
+ *
+ * 前は `.btn:hover` が地だけを surface2 に差し替えていた。
+ * 詳細度で `.btn.primary` に勝つので、塗りつぶしのボタンは
+ * 地だけ明るくなって文字が白のまま残り、文字が読めなくなっていた。
+ * 種類ごとに両方書くことで、片方だけが動く余地を無くす。
+ */
+.btn:hover:not(:disabled)         { background: var(--surface2); color: var(--ink); }
+.btn.primary:hover:not(:disabled) { background: var(--accent-hover); color: var(--accent-ink); }
+.btn.danger:hover:not(:disabled)  { background: var(--bad-hover); color: var(--bad-ink); }
+.btn.quiet:hover:not(:disabled)   { background: var(--surface2); color: var(--accent); }
 .btn.block   { width: 100%; }
 .btn.lg      { padding: .85rem 1.25rem; font-size: 1rem; }
 

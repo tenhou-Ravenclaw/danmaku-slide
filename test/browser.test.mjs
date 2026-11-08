@@ -789,7 +789,60 @@ async function readable(page, selectors) {
   return got.filter(Boolean);
 }
 
+/**
+ * ボタンが押す前と、マウスを乗せたときの両方で読めるか。
+ *
+ * 前は地だけを差し替えるホバーがあり、塗りつぶしのボタンは
+ * 文字が元の色のまま残って読めなくなっていた。
+ * 止まっている絵だけを見ていると見つからないので、両方の状態で測る。
+ */
+async function readableWhileHovering(page, sel) {
+  const out = [];
+  const rest = (await readable(page, [sel]))[0];
+  if (rest) out.push({ ...rest, state: '押す前' });
+  await page.hover(sel);
+  await page.waitForTimeout(120);
+  const hot = (await readable(page, [sel]))[0];
+  if (hot) out.push({ ...hot, state: 'ホバー' });
+  // 次の計測に残さない
+  await page.mouse.move(0, 0);
+  return out;
+}
+
 for (const scheme of ['light', 'dark']) {
+  await t(`ボタンはホバーしても読める（運営・${scheme}）`, async () => {
+    const org = await makeLiveEvent(`ボタンの会 ${scheme}`, ['Track A'], scheme);
+    // 塗りつぶし・枠線・文字だけ、種類をひととおり見る
+    const targets = [
+      ['#stopAll', 'danger'],
+      ['#addTrack', 'primary'],
+      ['#copyEvUrl', 'quiet'],
+      ['#tracks tr .btn.toSpeaker', '既定'],
+    ];
+    for (const [sel, kind] of targets) {
+      for (const { fg, bg, state } of await readableWhileHovering(org.page, sel)) {
+        const ratio = contrast(rgb(fg), rgb(bg));
+        assert(ratio >= 4.5,
+          `${kind}（${sel}）の${state}が読めない: ${ratio.toFixed(2)} (${fg} / ${bg})`);
+      }
+    }
+    await org.page.close();
+  });
+
+  await t(`送信ボタンはホバーしても読める（${scheme}）`, async () => {
+    const org = await makeLiveEvent(`送信配色の会 ${scheme}`, ['Track A']);
+    const r = await open(`${HOST}/post.html?emu=1&e=${org.eventId}&t=a`, { scheme });
+    await r.page.waitForFunction(
+      () => /Track A/.test(document.getElementById('track')?.textContent ?? ''), { timeout: 20000 });
+    await r.page.fill('#text', 'よめるか');
+    await r.page.waitForFunction(() => !document.getElementById('send').disabled, { timeout: 20000 });
+    for (const { fg, bg, state } of await readableWhileHovering(r.page, '#send')) {
+      const ratio = contrast(rgb(fg), rgb(bg));
+      assert(ratio >= 4.5, `送信の${state}が読めない: ${ratio.toFixed(2)} (${fg} / ${bg})`);
+    }
+    await r.page.close(); await org.page.close();
+  });
+
   await t(`運営の画面が ${scheme} で読める`, async () => {
     const r = await open(`${HOST}/organizer.html?emu=1`, { scheme });
     await signInAsOrganizer(r.page);
