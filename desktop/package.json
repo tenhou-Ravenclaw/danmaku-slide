@@ -1,0 +1,10 @@
+{
+  "name": "danmaku-slide",
+  "productName": "弾幕スライド",
+  "version": "0.1.0",
+  "description": "スライドに弾幕を重ねる",
+  "main": "main.cjs",
+  "type": "commonjs",
+  "author": "tenhou",
+  "license": "MIT"
+}

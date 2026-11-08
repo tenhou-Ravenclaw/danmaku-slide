@@ -74,15 +74,29 @@ test('重ねるウィンドウが透過・枠なし・最前面で作られる',
   assert.ok(props.bounds.width > 0 && props.bounds.height > 0, `大きさが変: ${JSON.stringify(props.bounds)}`);
 });
 
-test('重ねるウィンドウは画面いっぱいを覆う', async () => {
+test('重ねるウィンドウはどれかの画面をいっぱいに覆う', async () => {
+  // 投影先を既定にしているので、メインとは限らない。
+  // どれかの画面とぴったり一致していればいい。
   const fits = await app.evaluate(({ BrowserWindow, screen }) => {
     const w = BrowserWindow.getAllWindows().find((x) => x.isAlwaysOnTop());
-    const b = w.getBounds();
-    const d = screen.getPrimaryDisplay().bounds;
-    return { b, d };
+    return { b: w.getBounds(), ds: screen.getAllDisplays().map((d) => d.bounds) };
   });
-  assert.equal(fits.b.width, fits.d.width, `幅が合わない: ${fits.b.width} vs ${fits.d.width}`);
-  assert.equal(fits.b.height, fits.d.height, `高さが合わない: ${fits.b.height} vs ${fits.d.height}`);
+  const hit = fits.ds.some((d) =>
+    d.x === fits.b.x && d.y === fits.b.y && d.width === fits.b.width && d.height === fits.b.height);
+  assert.ok(hit, `どの画面とも一致しない: ${JSON.stringify(fits.b)} / ${JSON.stringify(fits.ds)}`);
+});
+
+test('画面が2枚以上あるときは投影先（メインでないほう）を既定にする', async () => {
+  const r = await app.evaluate(({ BrowserWindow, screen }) => {
+    const ds = screen.getAllDisplays();
+    if (ds.length < 2) return { skip: true };
+    const w = BrowserWindow.getAllWindows().find((x) => x.isAlwaysOnTop());
+    const b = w.getBounds();
+    const primary = screen.getPrimaryDisplay().bounds;
+    return { skip: false, onPrimary: b.x === primary.x && b.y === primary.y };
+  });
+  if (r.skip) { console.log('    （画面が1枚なので確かめられない）'); return; }
+  assert.ok(!r.onPrimary, 'メイン画面に出している');
 });
 
 test('終了と切り替えのキーが登録されている', async () => {

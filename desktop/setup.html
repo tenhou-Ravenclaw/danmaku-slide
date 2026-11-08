@@ -62,13 +62,23 @@
   }
 
   (async () => {
-    for (const d of await window.shell.displays()) {
+    const ds = await window.shell.displays();
+    for (const d of ds) {
       const o = document.createElement('option');
-      o.value = d.id; o.textContent = d.label; o.selected = d.primary;
+      o.value = d.id; o.textContent = d.label;
+      // 2枚以上あるなら投影先（メインでないほう）を既定にする
+      o.selected = ds.length > 1 ? !d.primary : d.primary;
       $('display').append(o);
     }
     $('track').focus();
   })();
+
+  // 運営のリンクから起動されたとき。登壇者に貼らせないための経路。
+  window.shell.onTrack?.((id) => {
+    $('track').value = id;
+    msg('リンクからトラックを受け取った', 'ok');
+    $('go').focus();
+  });
 
   async function go() {
     $('go').disabled = true;

@@ -17,3 +17,4 @@ extension/manifest.json
 danmaku-slide-extension.zip
 .ext-test/
 .ext-diag/
+dist/

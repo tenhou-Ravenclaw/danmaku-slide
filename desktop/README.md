@@ -4,9 +4,20 @@
 配信済みの弾幕ページを透過ウィンドウで開くだけ。描画の実装を1本に保つのが
 このプロダクトの設計なので、ここに描画を持たせない。
 
+## 手早く試す
+
 ```bash
 npm run shell
 ```
+
+## 配布するものを作る
+
+```bash
+npm run pack:app
+```
+
+`dist/` に `.app` と zip ができる。**署名していないので、macOS では初回だけ
+右クリック →「開く」** が要る（ダブルクリックだと「開発元を確認できない」で止まる）。
 
 開発中に別の配信先を見たいときは `DANMAKU_ORIGIN` で差し替える。
 
@@ -19,6 +30,7 @@ DANMAKU_ORIGIN=http://127.0.0.1:5055 npm run shell
 | | |
 |---|---|
 | トラックID または 投稿URL | QR の URL をそのまま貼ってもいい |
+| `danmaku://track/xxx` のリンク | 運営のリンクから起動すると**貼らずに入る** |
 | 重ねる画面 | 拡張ディスプレイを繋いでいるときは投影先を選ぶ |
 | <kbd>⌘⇧C</kbd> / <kbd>Ctrl+Shift+C</kbd> | クリックを通すかどうかを切り替える |
 | <kbd>⌘⇧X</kbd> / <kbd>Ctrl+Shift+X</kbd> | 終了する |
@@ -39,6 +51,7 @@ DANMAKU_ORIGIN=http://127.0.0.1:5055 npm run shell
 | `backgroundThrottling: false` | 画面が隠れると描画が止まり、弾幕が固まる |
 | `transparent: true` + `backgroundColor: '#00000000'` | 背景を抜く |
 | `app.dock.hide()` | Dock に出るとフォーカスを取ってしまう場面がある |
+| `enableLargerThanScreen: true` | これが無いと macOS がメニューバーのぶん押し下げ、画面の上端が覆えない |
 
 ## PowerPoint が前に出てくる件
 

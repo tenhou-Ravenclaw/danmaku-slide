@@ -10,6 +10,7 @@
     "review": "node scripts/review.mjs",
     "dev": "firebase emulators:start",
     "shell": "electron desktop/main.cjs",
+    "pack:app": "node scripts/pack-app.mjs",
     "lint:rules": "node scripts/lint-rules.mjs",
     "lint:secrets": "gitleaks git . --redact --verbose --no-banner",
     "test:unit": "node --test test/unit/",
@@ -25,6 +26,7 @@
     "preview": "npm run build && firebase hosting:channel:deploy preview --expires 7d"
   },
   "devDependencies": {
+    "@electron/packager": "^20.3.0",
     "@firebase/rules-unit-testing": "^6.0.0",
     "electron": "^45.2.3",
     "esbuild": "^0.28.2",

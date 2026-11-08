@@ -2,6 +2,8 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('shell', {
+  // 運営のリンクから渡ってきたトラックを受け取る
+  onTrack: (fn) => ipcRenderer.on('track', (_e, id) => fn(id)),
   displays: () => ipcRenderer.invoke('displays'),
   start: (args) => ipcRenderer.invoke('start', args),
   stop: () => ipcRenderer.invoke('stop'),

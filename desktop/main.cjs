@@ -14,6 +14,7 @@ const ORIGIN = process.env.DANMAKU_ORIGIN ?? 'https://df-hackathon-2026.web.app'
 let setupWin = null;
 let overlayWin = null;
 let clickThrough = true;
+let pendingTrack = null;   // リンクから渡ってきたトラック
 
 function overlayUrl(trackId) {
   const u = new URL('/overlay.html', ORIGIN);
@@ -23,16 +24,54 @@ function overlayUrl(trackId) {
   return u.toString();
 }
 
-/** 入力されたものからトラックIDを取り出す。URL をそのまま貼られても通す。 */
+/**
+ * 入力されたものからトラックIDを取り出す。
+ *
+ * 手で貼られるもの（ID / 投稿URL）と、運営のリンクから渡ってくるもの
+ * （danmaku://track/xxx）のどちらも通す。前者は人が、後者は OS が渡してくる。
+ */
 function parseTrackId(input) {
   const s = String(input ?? '').trim();
   if (!s) return null;
+
+  if (s.startsWith('danmaku:')) {
+    try {
+      const u = new URL(s);
+      // danmaku://?track=xxx と danmaku://track/xxx の両方を受ける
+      const q = u.searchParams.get('track');
+      if (q) return valid(q);
+      const parts = `${u.hostname}${u.pathname}`.split('/').filter(Boolean);
+      const i = parts.indexOf('track');
+      const id = i >= 0 ? parts[i + 1] : parts[0];
+      return valid(id);
+    } catch { return null; }
+  }
+
   try {
-    const u = new URL(s);
-    const t = u.searchParams.get('track');
-    if (t) return t;
+    const t = new URL(s).searchParams.get('track');
+    if (t) return valid(t);
   } catch { /* URL でなければ ID そのものとして扱う */ }
-  return /^[A-Za-z0-9_-]{1,64}$/.test(s) ? s : null;
+  return valid(s);
+}
+const valid = (s) => (/^[A-Za-z0-9_-]{1,64}$/.test(String(s ?? '')) ? String(s) : null);
+
+/** 起動時の引数や second-instance の引数から danmaku:// を拾う。 */
+function trackFromArgv(argv) {
+  const hit = (argv ?? []).find((a) => typeof a === 'string' && a.startsWith('danmaku:'));
+  return hit ? parseTrackId(hit) : null;
+}
+
+/**
+ * リンクから渡ってきたトラックを設定ウィンドウに流し込む。
+ * 登壇者に貼らせないためにこの経路がある。
+ */
+function deliverTrack(id) {
+  if (!id) return;
+  pendingTrack = id;
+  if (!setupWin || setupWin.isDestroyed()) createSetupWindow();
+  setupWin.show();
+  setupWin.focus();
+  setupWin.webContents.send('track', id);
 }
 
 function createSetupWindow() {
@@ -43,6 +82,9 @@ function createSetupWindow() {
     webPreferences: { preload: path.join(__dirname, 'preload.cjs') },
   });
   setupWin.loadFile(path.join(__dirname, 'setup.html'));
+  setupWin.webContents.once('did-finish-load', () => {
+    if (pendingTrack) setupWin.webContents.send('track', pendingTrack);
+  });
   setupWin.on('closed', () => { setupWin = null; });
   return setupWin;
 }
@@ -70,6 +112,9 @@ function overlayWindowOptions(bounds) {
     // フォーカスを取るとスライドショーが一時停止する
     focusable: false,
     backgroundColor: '#00000000',
+    // macOS はメニューバーのぶんウィンドウを押し下げる。これを外さないと
+    // 画面の上端 30px ほどが覆えず、投影に帯が残る。
+    enableLargerThanScreen: true,
     webPreferences: {
       // 画面が隠れていても描画を止めない。止まると弾幕が固まる。
       backgroundThrottling: false,
@@ -86,6 +131,9 @@ function createOverlayWindow(trackId, displayId) {
 
   overlayWin.setAlwaysOnTop(true, 'screen-saver');
   overlayWin.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  // 生成時の指定だけだと、macOS がメニューバーのぶん押し下げることがある。
+  // 最前面のレベルを上げてから置き直すと、画面の端まで覆える。
+  overlayWin.setBounds({ x, y, width, height });
   overlayWin.setIgnoreMouseEvents(clickThrough, { forward: true });
   overlayWin.loadURL(overlayUrl(trackId));
   overlayWin.on('closed', () => { overlayWin = null; });
@@ -115,6 +163,15 @@ function registerShortcuts() {
   });
 }
 
+// 二重起動させない。リンクを開くたびに新しいアプリが立つと、重なりが二重になる。
+if (!app.requestSingleInstanceLock()) {
+  app.quit();
+} else {
+  app.on('second-instance', (_e, argv) => deliverTrack(trackFromArgv(argv)));
+}
+// macOS はここに来る
+app.on('open-url', (e, url) => { e.preventDefault(); deliverTrack(parseTrackId(url)); });
+
 app.whenReady().then(() => {
   // Dock に出すとフォーカスを取ってしまう場面があるので隠す
   if (process.platform === 'darwin') app.dock?.hide();
@@ -138,8 +195,16 @@ app.whenReady().then(() => {
   ipcMain.handle('openExternal', (_e, url) => shell.openExternal(url));
   ipcMain.handle('origin', () => ORIGIN);
 
+  // 開発中は実行ファイルの場所が違うので、引数を添えて登録する
+  if (process.defaultApp && process.argv.length >= 2) {
+    app.setAsDefaultProtocolClient('danmaku', process.execPath, [path.resolve(process.argv[1])]);
+  } else {
+    app.setAsDefaultProtocolClient('danmaku');
+  }
+
   registerShortcuts();
   setInterval(keepOnTop, 1500);
+  pendingTrack = trackFromArgv(process.argv);
   createSetupWindow();
 
   app.on('activate', () => {
@@ -151,4 +216,4 @@ app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(
 app.on('will-quit', () => globalShortcut.unregisterAll());
 
 // テストから中身を確かめられるようにする
-module.exports = { parseTrackId, overlayUrl, overlayWindowOptions };
+module.exports = { parseTrackId, overlayUrl, overlayWindowOptions, trackFromArgv };

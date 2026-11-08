@@ -11,7 +11,7 @@ Module._resolveFilename = function (request, ...rest) {
   if (request === 'electron') return require_.resolve('./electron-stub.cjs');
   return origResolve.call(this, request, ...rest);
 };
-const { parseTrackId, overlayUrl, overlayWindowOptions } = require_('../../desktop/main.cjs');
+const { parseTrackId, overlayUrl, overlayWindowOptions, trackFromArgv } = require_('../../desktop/main.cjs');
 Module._resolveFilename = origResolve;
 
 test('トラックIDをそのまま受け取る', () => {
@@ -57,6 +57,13 @@ test('弾幕ページのURLは透過とHUD非表示を付ける', () => {
   assert.equal(u.searchParams.get('hud'), '0');
 });
 
+test('画面の端まで覆えるようにしてある', () => {
+  // macOS はメニューバーのぶんウィンドウを押し下げる。これを外さないと
+  // 画面の上端が覆えず、投影に帯が残る。
+  const o = overlayWindowOptions({ x: 0, y: 0, width: 100, height: 100 });
+  assert.equal(o.enableLargerThanScreen, true);
+});
+
 test('重ねるウィンドウの設定が揃っている', () => {
   // どれか1つ外れただけで、全画面のスライドショーの上に残らなくなる
   const o = overlayWindowOptions({ x: 0, y: 0, width: 1920, height: 1080 });
@@ -99,4 +106,37 @@ test('渡した位置と大きさをそのまま使う', () => {
   assert.equal(o.y, 0);
   assert.equal(o.width, 2560);
   assert.equal(o.height, 1440);
+});
+
+// --- 運営のリンクから起動されたとき ---------------------------------------
+test('danmaku://track/xxx からIDを取り出す', () => {
+  assert.equal(parseTrackId('danmaku://track/abc23xyz'), 'abc23xyz');
+});
+
+test('danmaku://?track=xxx からIDを取り出す', () => {
+  assert.equal(parseTrackId('danmaku://?track=abc23xyz'), 'abc23xyz');
+});
+
+test('danmaku://xxx（素の形）も受ける', () => {
+  assert.equal(parseTrackId('danmaku://abc23xyz'), 'abc23xyz');
+});
+
+test('danmaku:// に変なものが来ても通さない', () => {
+  // リンクは外から来るので、そのまま URL に差し込ませない
+  for (const v of ['danmaku://track/a b', 'danmaku://track/a%2Fb', 'danmaku://?track=a&b=c&track=x/y',
+                   'danmaku://track/<script>', 'danmaku://']) {
+    const r = parseTrackId(v);
+    assert.ok(r === null || /^[A-Za-z0-9_-]+$/.test(r), `通ってしまった: ${v} -> ${r}`);
+  }
+});
+
+test('起動時の引数から danmaku:// を拾う', () => {
+  assert.equal(trackFromArgv(['/path/app', 'danmaku://track/zzz99']), 'zzz99');
+  assert.equal(trackFromArgv(['/path/app', '--foo', 'danmaku://?track=q7']), 'q7');
+});
+
+test('引数に danmaku:// が無ければ null', () => {
+  assert.equal(trackFromArgv(['/path/app', '--foo']), null);
+  assert.equal(trackFromArgv([]), null);
+  assert.equal(trackFromArgv(undefined), null);
 });
