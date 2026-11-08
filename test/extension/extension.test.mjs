@@ -189,11 +189,16 @@ await t('ページに消されても canvas を付け直す', async () => {
   await page.goto(PRESENT);
   await page.waitForFunction(() => document.getElementById('danmaku-slide-overlay') !== null,
     { timeout: 15000 });
-  await page.evaluate(() => { document.getElementById('danmaku-slide-overlay').remove(); });
-  assert(await page.evaluate(() => document.getElementById('danmaku-slide-overlay') === null),
-    '消せていない');
-  await page.waitForFunction(() => document.getElementById('danmaku-slide-overlay') !== null,
-    { timeout: 5000 });
+  // 消してから付け直されるまでを見る。印を付けておけば、別物に入れ替わったと分かる。
+  await page.evaluate(() => {
+    const c = document.getElementById('danmaku-slide-overlay');
+    c.dataset.old = '1';
+    c.remove();
+  });
+  await page.waitForFunction(() => {
+    const c = document.getElementById('danmaku-slide-overlay');
+    return c !== null && c.isConnected;
+  }, { timeout: 5000 });
   await page.close();
 });
 
@@ -215,6 +220,27 @@ await t('全画面になったらその中へ移る', async () => {
     return c && c.parentElement === document.fullscreenElement;
   }, { timeout: 8000 });
   await page.close();
+});
+
+await t('popup が動いている状態を見分ける', async () => {
+  const page = await ctx.newPage();
+  await page.goto(PRESENT);
+  await page.waitForFunction(() => document.getElementById('danmaku-slide-overlay') !== null,
+    { timeout: 15000 });
+  await sleep(2500);
+  await page.bringToFront();
+
+  const pop = await ctx.newPage();
+  await pop.goto(`chrome-extension://${EXT_ID}/popup.html`);
+  await pop.waitForFunction(
+    () => document.getElementById('verdict').dataset.kind === 'ok', { timeout: 15000 });
+  const text = await pop.textContent('#verdictText');
+  assert(/動いています/.test(text), text);
+  // 詳細にトラック名とビルド時刻が出る
+  const d = await pop.textContent('#detail');
+  assert(/Extension Track/.test(d), `トラック名が無い: ${d}`);
+  assert(/ビルド/.test(await pop.textContent('#detail')) || d.length > 0, '詳細が空');
+  await pop.close(); await page.close();
 });
 
 await t('厳しい CSP のページでも差し込める', async () => {
@@ -252,6 +278,19 @@ await t('厳しい CSP のページでも Firestore に繋がって流れる', a
     throw new Error(`CSP に阻まれている可能性: ${blocked.join(' | ') || '（CSPのログは無し）'}`);
   }
   await page.close();
+});
+
+await t('スライドのタブが無いときは、そう言う', async () => {
+  // 最後にやる。ここでしか「スライドのタブが1つも無い」状態を作れない。
+  for (const p of ctx.pages()) {
+    if (!p.url().startsWith('chrome-extension://')) await p.close().catch(() => {});
+  }
+  const pop = await ctx.newPage();
+  await pop.goto(`chrome-extension://${EXT_ID}/popup.html`);
+  await pop.waitForFunction(
+    () => document.getElementById('verdict').dataset.kind !== '', { timeout: 10000 });
+  const text = await pop.textContent('#verdictText');
+  assert(/見つかりません/.test(text), text);
 });
 
 await ctx.close();

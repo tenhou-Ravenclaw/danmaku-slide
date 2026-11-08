@@ -53,6 +53,7 @@ const r = await build({
   legalComments: 'none',
   define: {
     __FIREBASE_CONFIG__: JSON.stringify(config),
+    __BUILT_AT__: JSON.stringify(new Date().toISOString().replace('T', ' ').slice(0, 19)),
     __USE_EMULATOR__: String(forTest),
   },
   metafile: true,

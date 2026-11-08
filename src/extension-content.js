@@ -9,14 +9,28 @@ import { createBus } from '../public/lib/bus.mjs';
 import * as sdk from './vendor-for-extension.js';
 
 const CONFIG = __FIREBASE_CONFIG__;   // ビルド時に差し込む
+const BUILT_AT = __BUILT_AT__;        // どのビルドが動いているか分かるように
 
 /** 発表中のページでだけ動かす。編集画面には出さない。 */
 function isPresenting() {
   return /\/presentation\/d\/[^/]+\/present/.test(location.pathname);
 }
 
+/** 拡張のアイコンから「いまどうなっているか」を聞けるようにする。 */
+function answerReports(getState) {
+  chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
+    if (msg?.type !== 'danmaku:report') return;
+    reply({ ok: true, builtAt: BUILT_AT, url: location.href, ...getState() });
+    return true;
+  });
+}
+
 async function main() {
-  if (!isPresenting()) return;
+  if (!isPresenting()) {
+    // 発表ページでなくても、問い合わせには答える
+    answerReports(() => ({ presenting: false, reason: '発表ページではない' }));
+    return;
+  }
 
   // 状態を短く出す。流れないときに原因が分からないのがいちばん困る。
   const badge = document.createElement('div');
@@ -43,6 +57,7 @@ async function main() {
 
   const { trackId } = await chrome.storage.local.get('trackId');
   if (!trackId) {
+    answerReports(() => ({ presenting: true, reason: 'トラックが未設定' }));
     status('トラックが未設定。拡張のアイコンから設定する', false);
     console.info('[弾幕スライド] トラックが未設定。拡張のアイコンから設定する');
     return;
@@ -124,8 +139,12 @@ async function main() {
 
   let unwatch = null;
   let sessionKey = null;
+  let trackName = null;
+  let trackStopped = null;
+  let received = 0;
   bus.watchTrack((track) => {
     if (!track) { status(`トラックが見つからない: ${trackId}`, false); return; }
+    trackName = track.name; trackStopped = track.stopped;
     if (!track.sessionStartedAt) return;
     const key = track.sessionStartedAt.toMillis?.() ?? String(track.sessionStartedAt);
     if (key === sessionKey) return;
@@ -135,27 +154,29 @@ async function main() {
     unwatch = bus.watchComments(track.sessionStartedAt, (c, { isBacklog }) => {
       // 溜まっていた分は流さない。一斉に出ると画面が埋まる。
       if (isBacklog) { flow.markSeen(c.id); return; }
+      received++;
       flow.add({ id: c.id, text: c.text, width: renderer.measure(c.text) }, performance.now());
     }, (e) => { status(`購読できない: ${e.code ?? e.message}`, false); console.warn(e); });
     status(`${track.name}${track.stopped ? ' · 停止中' : ' · 受付中'}`);
   }, (e) => { status(`トラックを読めない: ${e.code ?? e.message}`, false); console.warn(e); });
 
   // 動作確認用。ページのコンソールからは触れない（分離された世界なので）
-  globalThis.__danmaku = {
-    flow, renderer, bus, canvas, status,
-    /** 困ったときに読む。拡張の世界からしか触れない。 */
-    report: () => ({
-      trackId,
-      connected: canvas.isConnected,
-      parent: canvas.parentElement?.tagName ?? null,
-      fullscreen: document.fullscreenElement?.tagName ?? null,
-      size: `${canvas.width}x${canvas.height}`,
-      lanes: flow.laneCount,
-      active: flow.activeCount,
-      seen: flow.seen.size,
-      badge: badge.textContent,
-    }),
-  };
+  const report = () => ({
+    presenting: true,
+    trackId,
+    track: trackName,
+    stopped: trackStopped,
+    connected: canvas.isConnected,
+    parent: canvas.parentElement?.tagName ?? null,
+    fullscreen: document.fullscreenElement?.tagName ?? null,
+    size: `${canvas.width}x${canvas.height}`,
+    lanes: flow.laneCount,
+    active: flow.activeCount,
+    received,
+    badge: badge.textContent,
+  });
+  answerReports(report);
+  globalThis.__danmaku = { flow, renderer, bus, canvas, status, report };
   console.info('[弾幕スライド] 重ねた:', trackId);
 }
 
