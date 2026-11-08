@@ -50,6 +50,31 @@ async function open(url) {
   return { page, errors };
 }
 
+/**
+ * 登壇者コンソールを開いて、そのページ自身にトラックを作らせる。
+ * コンソールは owner が操作するものなので、node 側の別ユーザーで作った
+ * トラックを開くと（正しく）拒否される。
+ */
+async function openConsoleWithNewTrack(name) {
+  const r = await open(`${HOST}/speaker.html?emu=1`);
+  await r.page.waitForFunction(
+    () => !document.getElementById('createBox')?.classList.contains('hidden'),
+    { timeout: 15000 });
+  await r.page.fill('#newName', name);
+  await r.page.click('#create');
+  // 受付中の表示は購読から来るので、URL の書き換えより先に起きることがある。
+  // trackId が要るので URL のほうを待つ。
+  await r.page.waitForFunction(
+    () => new URL(location.href).searchParams.get('track') !== null,
+    { timeout: 15000 });
+  await r.page.waitForFunction(
+    () => /受付中/.test(document.getElementById('stateText')?.textContent ?? ''),
+    { timeout: 15000 });
+  const trackId = new URL(r.page.url()).searchParams.get('track');
+  if (!trackId) throw new Error('URL に trackId が入らなかった');
+  return { ...r, trackId };
+}
+
 /** Canvas に実際に何か描かれているかを数える。 */
 function drawnPixels(page) {
   return page.evaluate(() => {
@@ -298,6 +323,165 @@ await t('投稿ページから送ったものが弾幕ページに流れる（�
   assert(post.errors.length === 0, `投稿側のエラー: ${post.errors.join(' / ')}`);
   await post.page.close();
   await overlay.page.close();
+});
+
+// --- 登壇者コンソール ---------------------------------------------------
+await t('トラック未指定なら作る画面が出る', async () => {
+  const { page, errors } = await open(`${HOST}/speaker.html?emu=1`);
+  await page.waitForFunction(
+    () => !document.getElementById('createBox')?.classList.contains('hidden'),
+    { timeout: 15000 });
+  assert(await page.isHidden('#stopBox'), '存在しないのに停止ボタンが出ている');
+  const focused = await page.evaluate(() => document.activeElement?.id);
+  assert(focused === 'newName', `フォーカス=${focused}`);
+  assert(errors.length === 0, `エラー: ${errors.join(' / ')}`);
+  await page.close();
+});
+
+await t('トラックを作ると QR と停止ボタンが出る', async () => {
+  const { page, errors } = await open(`${HOST}/speaker.html?emu=1`);
+  await page.waitForFunction(
+    () => !document.getElementById('createBox')?.classList.contains('hidden'),
+    { timeout: 15000 });
+  await page.fill('#newName', 'Track Z');
+  await page.click('#create');
+  await page.waitForFunction(
+    () => !document.getElementById('qrBox')?.classList.contains('hidden'),
+    { timeout: 15000 });
+
+  assert(/受付中/.test(await page.textContent('#stateText')), await page.textContent('#stateText'));
+  assert(await page.isVisible('#stop'), '停止ボタンが無い');
+  assert(await page.isHidden('#resume'), '再開ボタンが出ている');
+  // 再読み込みで戻れるよう URL に trackId が残る
+  const url = page.url();
+  assert(/[?&]track=[23456789a-z]{8}/.test(url), `URL に trackId が無い: ${url}`);
+  assert(errors.length === 0, `エラー: ${errors.join(' / ')}`);
+  await page.close();
+});
+
+await t('生成した QR が実際に読み取れる', async () => {
+  const { page } = await open(`${HOST}/speaker.html?emu=1`);
+  await page.waitForFunction(
+    () => !document.getElementById('createBox')?.classList.contains('hidden'),
+    { timeout: 15000 });
+  await page.fill('#newName', 'QR Track');
+  await page.click('#create');
+  await page.waitForFunction(
+    () => document.querySelector('#qrSlot svg') !== null, { timeout: 15000 });
+
+  const expected = await page.textContent('#postUrl');
+
+  // SVG を Canvas に描いてピクセルを取り出し、デコーダに通す。
+  // 「SVG が出た」だけでは読み取れる保証にならない。
+  const rgba = await page.evaluate(async () => {
+    const svg = document.querySelector('#qrSlot svg').outerHTML;
+    const img = new Image();
+    const blob = new Blob([svg], { type: 'image/svg+xml' });
+    const url = URL.createObjectURL(blob);
+    await new Promise((res, rej) => { img.onload = res; img.onerror = rej; img.src = url; });
+    const size = 480;
+    const c = document.createElement('canvas');
+    c.width = size; c.height = size;
+    const ctx = c.getContext('2d');
+    ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, size, size);
+    ctx.drawImage(img, 0, 0, size, size);
+    URL.revokeObjectURL(url);
+    return { data: Array.from(ctx.getImageData(0, 0, size, size).data), size };
+  });
+
+  const jsQR = (await import('jsqr')).default;
+  const decoded = jsQR(new Uint8ClampedArray(rgba.data), rgba.size, rgba.size);
+  assert(decoded !== null, 'QR を読み取れなかった');
+  assert(decoded.data === expected, `読み取り結果が違う:\n  期待 ${expected}\n  実際 ${decoded.data}`);
+  await page.close();
+});
+
+await t('停止を押すと止まり、再開で戻る', async () => {
+  const { page, errors, trackId: t5 } = await openConsoleWithNewTrack('Stop Me');
+
+  // 止める前は投稿が通ることを先に確かめる（止まったことが本当に効果だと言うため）
+  const before = await actor(t5);
+  await before.post('止める前');
+
+  await page.click('#stop');
+  await page.waitForFunction(
+    () => /止めている/.test(document.getElementById('stateText')?.textContent ?? ''),
+    { timeout: 15000 });
+  assert(await page.isHidden('#stop'), '停止後も停止ボタンが出ている');
+  assert(await page.isVisible('#resume'), '再開ボタンが無い');
+
+  // 止めた瞬間から投稿が拒否される
+  const po = await actor(t5);
+  let denied = false;
+  try { await po.post('まだ送れる？'); } catch (e) { denied = true; }
+  assert(denied, '停止後なのに投稿が通った');
+
+  await page.click('#resume');
+  await page.waitForFunction(
+    () => /受付中/.test(document.getElementById('stateText')?.textContent ?? ''),
+    { timeout: 15000 });
+  assert(errors.length === 0, `エラー: ${errors.join(' / ')}`);
+  await page.close();
+});
+
+await t('開始すると演題が反映され、前の登壇のコメントは流れなくなる', async () => {
+  const { page, trackId: t6 } = await openConsoleWithNewTrack('Session Track');
+  const old = await actor(t6);
+  await old.post('前の登壇のコメント');
+  await sleep(400);
+
+  await page.fill('#title', 'つぎの演題');
+  await page.fill('#speaker', 'わたし');
+  await page.click('#start');
+  await sleep(900);
+
+  // 弾幕ページを開いても、前のセッションの分は流れない
+  const ov = await open(`${HOST}/overlay.html?emu=1&track=${t6}`);
+  await ov.page.waitForFunction(
+    () => /つぎの演題/.test(document.getElementById('hud')?.textContent ?? ''),
+    { timeout: 15000 });
+  await sleep(1000);
+  const active = await ov.page.evaluate(() => window.__overlay.flow.activeCount);
+  assert(active === 0, `前の登壇のコメントが流れた: ${active}件`);
+  await ov.page.close();
+  await page.close();
+});
+
+await t('引き継ぎコードを発行すると画面に出て、実際に使える', async () => {
+  const { page, errors, trackId: t7 } = await openConsoleWithNewTrack('Handoff Track');
+  await page.click('#issue');
+  await page.waitForFunction(
+    () => !document.getElementById('handoffCode')?.classList.contains('hidden'),
+    { timeout: 15000 });
+  const code = (await page.textContent('#handoffCode')).trim();
+  assert(/^[23456789A-HJ-NP-Z]{6}$/.test(code), `形が違う: ${code}`);
+
+  // 発行されたコードで別人が運用者になれる
+  const next = await actor(t7);
+  await next.claimOperator(code);
+  await next.startSession({ title: '引き継いだ' });
+  assert((await next.getTrack()).data().title === '引き継いだ', '運用者として書けていない');
+  assert(errors.length === 0, `エラー: ${errors.join(' / ')}`);
+  await page.close();
+});
+
+await t('owner 以外がコンソールを開いても操作できない', async () => {
+  // 他人のトラックを開いても、停止や開始は Rules が拒否する
+  const t8 = 'speaker-notowner';
+  const sp = await actor(t8);
+  await sp.createTrack({ name: 'Someone Else' });
+
+  const { page } = await open(`${HOST}/speaker.html?emu=1&track=${t8}`);
+  await page.waitForFunction(
+    () => /受付中/.test(document.getElementById('stateText')?.textContent ?? ''),
+    { timeout: 15000 });
+  await page.click('#stop');
+  await page.waitForFunction(
+    () => /止められない/.test(document.getElementById('stateText')?.textContent ?? ''),
+    { timeout: 15000 });
+  // 実際に止まっていない
+  assert((await sp.getTrack()).data().stopped === false, '他人が止められている');
+  await page.close();
 });
 
 await browser.close();

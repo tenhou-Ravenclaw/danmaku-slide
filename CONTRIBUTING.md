@@ -59,9 +59,9 @@ go install github.com/xpadev-net/gh-review-hook/cmd/gh-review-hook@latest
 
 | ジョブ | 内容 |
 |---|---|
-| 弾幕エンジンのテスト | `node --test` で 20 件 |
+| 純粋ロジックのテスト | `node --test` で 40 件 |
 | Firestore のテスト | エミュレータで Rules 42 件 + 境界 14 件 |
-| 実ブラウザでの検証 | Playwright + エミュレータで 17 件 |
+| 実ブラウザでの検証 | Playwright + エミュレータで 24 件 |
 | Rules の不変条件と生成物のガード | テストモードの Rules の混入、守りの欠落、生成物の追跡を機械で落とす |
 | 秘密情報スキャン | gitleaks で **履歴** を見る（一度コミットして消した鍵も対象） |
 | 依存の脆弱性 | 配信物は moderate 以上で落とす / 開発ツールは high 以上で落とす |

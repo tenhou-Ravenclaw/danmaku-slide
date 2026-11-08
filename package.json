@@ -24,9 +24,13 @@
     "esbuild": "^0.28.2",
     "firebase": "^13.2.0",
     "firebase-tools": "^15.35.0",
+    "jsqr": "^1.4.0",
     "playwright": "^1.65.0"
   },
   "overrides": {
     "@grpc/grpc-js": "^1.14.7"
+  },
+  "dependencies": {
+    "qrcode": "^1.5.4"
   }
 }

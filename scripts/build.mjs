@@ -11,8 +11,8 @@ if (!existsSync('.firebase-config.json')) {
 }
 
 const result = await build({
-  entryPoints: ['src/vendor-firebase.js'],
-  outfile: 'public/vendor/firebase.js',
+  entryPoints: ['src/vendor.js'],
+  outfile: 'public/vendor/lib.js',
   bundle: true,
   format: 'esm',
   target: 'es2022',
