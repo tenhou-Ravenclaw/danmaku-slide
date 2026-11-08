@@ -88,12 +88,24 @@ async function main() {
   // --- 重ねる canvas ---------------------------------------------------
   const canvas = document.createElement('canvas');
   canvas.id = 'danmaku-slide-overlay';
-  // pointer-events: none がクリック透過の全て。z-index は Google の UI より上。
-  canvas.style.cssText = [
-    'position:fixed', 'inset:0', 'width:100vw', 'height:100vh',
-    'pointer-events:none', 'z-index:2147483647', 'background:transparent',
-  ].join(';');
-  document.body.append(canvas);
+  /**
+   * 相手のページの CSS に負けないよう important で置く。
+   * 相手は自分の canvas や全称セレクタに指定を持っていることがある。
+   *
+   * pointer-events: none がクリック透過の全て。z-index は Google の UI より上。
+   */
+  const FIXED = {
+    position: 'fixed', top: '0', left: '0', right: '0', bottom: '0',
+    width: '100vw', height: '100vh', margin: '0', padding: '0', border: '0',
+    'pointer-events': 'none', 'z-index': '2147483647',
+    background: 'transparent', display: 'block', opacity: '1',
+    visibility: 'visible', transform: 'none', filter: 'none',
+    'max-width': 'none', 'max-height': 'none', 'min-width': '0', 'min-height': '0',
+  };
+  function applyStyle() {
+    for (const [k, v] of Object.entries(FIXED)) canvas.style.setProperty(k, v, 'important');
+  }
+  applyStyle();
 
   /**
    * 置き場所を保つ。
@@ -104,7 +116,9 @@ async function main() {
    */
   function hostFor() {
     const fs = document.fullscreenElement;
-    if (!fs) return document.body;
+    // body ではなく html に付ける。body に transform や filter がかかっていると、
+    // position: fixed がその中に閉じ込められて、思った場所に出ない。
+    if (!fs) return document.documentElement;
     // iframe が全画面になると、こちらからは中へ入れない
     if (fs.tagName === 'IFRAME') return null;
     return fs;
@@ -117,7 +131,10 @@ async function main() {
       return;
     }
     lostHost = false;
-    if (canvas.parentElement !== host || !canvas.isConnected) host.append(canvas);
+    if (canvas.parentElement !== host || !canvas.isConnected) {
+      host.append(canvas);
+      applyStyle();   // 付け直すたびに当て直す
+    }
   }
   document.addEventListener('fullscreenchange', () => { reparent(); fit(); });
   reparent();
@@ -193,6 +210,11 @@ async function main() {
     stopped: trackStopped,
     connected: canvas.isConnected,
     parent: canvas.parentElement?.tagName ?? null,
+    // 実際に画面のどこに出ているか。0x0 や画面外なら置き場所が効いていない。
+    box: (() => { const r = canvas.getBoundingClientRect();
+      return `${Math.round(r.width)}x${Math.round(r.height)} @${Math.round(r.left)},${Math.round(r.top)}`; })(),
+    visible: (() => { const c = getComputedStyle(canvas);
+      return c.display !== 'none' && c.visibility !== 'hidden' && c.opacity !== '0'; })(),
     fullscreen: document.fullscreenElement?.tagName ?? null,
     size: `${canvas.width}x${canvas.height}`,
     lanes: flow.laneCount,

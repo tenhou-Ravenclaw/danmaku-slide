@@ -133,12 +133,22 @@ await t('発表ページに弾幕の canvas が差し込まれる', async () => 
   await page.waitForFunction(() => document.getElementById('danmaku-slide-overlay') !== null,
     { timeout: 15000 });
   const css = await page.evaluate(() => {
-    const c = getComputedStyle(document.getElementById('danmaku-slide-overlay'));
-    return { pe: c.pointerEvents, pos: c.position, z: c.zIndex };
+    const el = document.getElementById('danmaku-slide-overlay');
+    const c = getComputedStyle(el);
+    const r = el.getBoundingClientRect();
+    return { pe: c.pointerEvents, pos: c.position, z: c.zIndex, disp: c.display,
+             parent: el.parentElement.tagName, w: Math.round(r.width), h: Math.round(r.height),
+             x: Math.round(r.left), y: Math.round(r.top) };
   });
+  // 模擬ページは canvas { display:none !important } と body の transform を持っている。
+  // 相手の指定に負けていないことを確かめる。
   assert(css.pe === 'none', `クリックが透けない: pointer-events=${css.pe}`);
   assert(css.pos === 'fixed', `position=${css.pos}`);
+  assert(css.disp === 'block', `相手の display:none に負けている: ${css.disp}`);
   assert(Number(css.z) > 1000000, `z-index が低い: ${css.z}`);
+  assert(css.parent === 'HTML', `body の transform に閉じ込められる置き方: ${css.parent}`);
+  assert(css.w >= 1200 && css.h >= 600, `画面を覆えていない: ${css.w}x${css.h}`);
+  assert(css.x === 0 && css.y === 0, `位置がずれている: ${css.x},${css.y}`);
   await page.close();
 });
 
