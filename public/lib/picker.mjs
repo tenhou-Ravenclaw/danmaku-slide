@@ -1,9 +1,9 @@
 // トラック選択。チラシのQR1本から、観客が自分の部屋を選ぶ。
 //
 // これがあると、トラックごとに別のQRを刷らなくて済む。
-import { start } from './app.mjs';
-import { createEventBus } from './bus.mjs';
-import { postUrlFor, withEnv } from './ids.mjs';
+import { start } from '/lib/app.mjs';
+import { createEventBus } from '/lib/bus.mjs';
+import { postUrlFor, withEnv } from '/lib/ids.mjs';
 
 export async function createPicker({ eventId } = {}) {
   const el = (id) => document.getElementById(id);
@@ -62,7 +62,7 @@ export async function createPicker({ eventId } = {}) {
       const sub = document.createElement('div');
       sub.className = 's';
       // コメントは外から来る。textContent で入れる。
-      sub.textContent = t.stopped ? '次の登壇を待っています' : (t.title || '登壇の開始を待っています');
+      sub.textContent = (t.live && !t.stopped) ? '登壇中' : '次の登壇を待っています';
       box.append(name, sub);
       const chev = document.createElement('span');
       chev.className = 'chev';

@@ -6,6 +6,17 @@ service cloud.firestore {
     // 匿名認証でも authed() は true。観客にも匿名サインインを入れる前提。
     function authed() { return request.auth != null; }
 
+    /**
+     * 匿名ではない人。運営だけがこれを満たす。
+     *
+     * イベントとトラックは当日まで残るものなので、端末を変えたら失う匿名のままでは
+     * 運用に耐えない。作る・消すは本人確認できる人に限る。
+     * 開始や停止は登壇者（匿名＋合言葉）も行うので、そちらは authed() のまま。
+     */
+    function signedIn() {
+      return authed() && request.auth.token.firebase.sign_in_provider != 'anonymous';
+    }
+
     match /events/{eventId} {
 
       function eventPath() { return /databases/$(db)/documents/events/$(eventId); }
@@ -21,7 +32,7 @@ service cloud.firestore {
       allow get: if authed();
       allow list: if authed() && request.query.limit <= 50;
 
-      allow create: if authed()
+      allow create: if signedIn()
         && request.resource.data.keys().hasOnly(['name','heldOn','ownerUid','createdAt'])
         && request.resource.data.ownerUid == request.auth.uid
         && request.resource.data.name is string
@@ -29,12 +40,12 @@ service cloud.firestore {
         && request.resource.data.name.size() <= 60
         && request.resource.data.createdAt == request.time;
 
-      allow update: if isEventOperator()
+      allow update: if signedIn() && isEventOperator()
         && request.resource.data.ownerUid == resource.data.ownerUid
         && request.resource.data.createdAt == resource.data.createdAt
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name','heldOn']);
 
-      allow delete: if authed() && resource.data.ownerUid == request.auth.uid;
+      allow delete: if signedIn() && resource.data.ownerUid == request.auth.uid;
 
       // 引き継ぎコードの置き場。誰からも読めない。Rules の get() だけが参照する。
       match /private/{doc} {
@@ -72,23 +83,28 @@ service cloud.firestore {
         allow get: if authed();
         allow list: if authed() && request.query.limit <= 50;
 
-        allow create: if authed()
+        allow create: if signedIn()
           && get(eventPath()).data.ownerUid == request.auth.uid
           && request.resource.data.keys().hasOnly(
-               ['name','title','speaker','sessionStartedAt','stopped','createdAt'])
+               ['name','sessionStartedAt','stopped','live','createdAt'])
           && request.resource.data.name is string
           && request.resource.data.name.size() > 0
           && request.resource.data.name.size() <= 40
           && request.resource.data.stopped == false
+          // 作った直後は「開始前」。演題が入っているかどうかでは判定できない
+          // （運営が先に入れておくので）。
+          && request.resource.data.live == false
           && request.resource.data.createdAt == request.time;
 
         // createdAt は後から書き換えられない。触れるのは運用4フィールドだけ。
         allow update: if isTrackOperator()
           && request.resource.data.createdAt == resource.data.createdAt
+          // 触れるのは運用の3つだけ。演題は持たない。
+          // セッションの切れ目は startSession が作るもので、演題とは関係がない。
           && request.resource.data.diff(resource.data).affectedKeys()
-               .hasOnly(['title','speaker','sessionStartedAt','stopped']);
+               .hasOnly(['sessionStartedAt','stopped','live']);
 
-        allow delete: if authed() && get(eventPath()).data.ownerUid == request.auth.uid;
+        allow delete: if signedIn() && get(eventPath()).data.ownerUid == request.auth.uid;
 
         // 登壇者に渡すリンクの合言葉。誰からも読めない。
         match /private/{doc} {

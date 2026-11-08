@@ -134,7 +134,7 @@ await t('前のセッションのコメントは購読に入らない', async ()
   await bus('po3', 'ev-session', 'a').post('前の登壇のコメント');
   await sleep(400);
 
-  await sp.startSession({ title: '次の登壇', speaker: 'わたし' });
+  await sp.startSession();
   await sleep(400);
   const startedAt = (await sp.getTrack()).data().sessionStartedAt;
 
@@ -210,7 +210,7 @@ await t('次の登壇が始まると再スキャンなしで送れる', async ()
   const un = po.watchTrack(() => {});
   await sleep(300);
   await sp.endSession();    await sleep(400);
-  await sp.startSession({ title: '次の登壇' }); await sleep(500);
+  await sp.startSession(); await sleep(500);
   un();
   assert(po.isStopped === false, '再開が伝わっていない');
   await po.post('おかえり');
@@ -225,8 +225,9 @@ await t('リンクの合言葉で登壇者になれる', async () => {
 
   const speaker = bus('spC', 'ev-ho', 'a');
   await speaker.claim('CODE-42');
-  await speaker.startSession({ title: '引き継いだ登壇' });
-  assert((await speaker.getTrack()).data().title === '引き継いだ登壇', '書けていない');
+  await speaker.startSession();
+  const d = (await speaker.getTrack()).data();
+  assert(d.live === true && d.stopped === false, `開始できていない: ${JSON.stringify(d)}`);
 });
 
 await t('誤った合言葉では登壇者になれない', async () => {

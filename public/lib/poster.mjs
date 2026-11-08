@@ -54,7 +54,7 @@ export async function createPoster({ eventId, trackId, now = () => Date.now() } 
     }
     el('track').textContent = t.name;
     // 停止中は演題ではなく状況を出す。再スキャンは要らないことを伝える。
-    el('title').textContent = t.stopped ? '次の登壇を待っています' : (t.title || '登壇の開始を待っています');
+    el('title').textContent = (t.live && !t.stopped) ? '登壇中' : '次の登壇を待っています';
     refresh();
   }, () => { el('track').textContent = '読み取れません'; note(reasonText('denied'), 'bad'); });
 
@@ -72,13 +72,15 @@ export async function createPoster({ eventId, trackId, now = () => Date.now() } 
     el('text').dataset.over = over > 0 ? '1' : '';
 
     const waitMs = bus.cooldownRemaining();
-    const blocked = len === 0 || over > 0 || waitMs > 0 || track === null || track.stopped;
+    // 開始前も送れない。開始まで待ってもらう。
+    const notLive = track === null || track.stopped || !track.live;
+    const blocked = len === 0 || over > 0 || waitMs > 0 || notLive;
     el('send').disabled = blocked;
     // 待っている間は、ボタンにも残り秒数を出す。状態行だけだと見落とす。
     el('send').textContent = waitMs > 0 ? `あと${Math.ceil(waitMs / 1000)}秒` : '送信';
 
     if (over > 0) note(reasonText('too-long', { over }), 'bad');
-    else if (track?.stopped) note(reasonText('stopped'), 'wait');
+    else if (track && !track.live) note(reasonText('stopped'), 'wait');
     else if (waitMs > 0) note(reasonText('cooldown', { waitMs }), 'ok');
   }
 

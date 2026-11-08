@@ -2,7 +2,7 @@
 //
 // 事前に落ち着いて使う画面なので、一覧性と編集のしやすさを優先する。
 // 弾幕そのものやコメントの中身は出さない。運営が見たいのは「配れているか」だけ。
-import { connect, start } from './app.mjs';
+import { watchOrganizer, signInOrganizer, signOutOrganizer } from './app.mjs';
 import { createEventBus, createBus } from './bus.mjs';
 import { QRCode } from '../vendor/entry.js';
 import {
@@ -16,11 +16,31 @@ export async function createOrganizer({ eventId, random = () => Math.random() } 
   const say = (text, kind = '') => { msg.textContent = text; msg.dataset.kind = kind; };
   const fail = (text) => say(text, 'bad');
 
-  const { uid, db, sdk } = await start();
-  const events = createEventBus(sdk, { db, uid });
-  el('who').textContent = `匿名 ${uid.slice(0, 6)}`;
+  // 運営は匿名では入れない。イベントは当日まで残るので、端末を変えても
+  // 同じものを開ける必要がある。Rules 側でも匿名の作成・削除を拒んでいる。
+  let uid, db, sdk, events, booted = false;
 
-  return eventId ? detail(eventId) : list();
+  el('signIn').addEventListener('click', async () => {
+    el('signIn').disabled = true;
+    try { await signInOrganizer(); }
+    catch (e) { fail(`サインインできない: ${e.code ?? e.message}`); }
+    finally { el('signIn').disabled = false; }
+  });
+  el('signOut').addEventListener('click', () => signOutOrganizer().then(() => location.reload()));
+
+  await watchOrganizer((user) => {
+    const inside = user !== null;
+    el('gateView').classList.toggle('hidden', inside);
+    el('signOut').classList.toggle('hidden', !inside);
+    el('who').textContent = inside ? user.name : '';
+    if (!inside || booted) return;
+    booted = true;
+    ({ uid, db, sdk } = user);
+    events = createEventBus(sdk, { db, uid });
+    if (eventId) detail(eventId); else list();
+  });
+
+  return { kind: 'gate' };
 
   // --- イベント一覧 -----------------------------------------------------
   function list() {
@@ -33,11 +53,12 @@ export async function createOrganizer({ eventId, random = () => Math.random() } 
           const snap = await events.getTracksOnce(ev.id);
           const tracks = snap.docs.map((d) => d.data());
           return { ...ev, trackCount: tracks.length,
-            openCount: tracks.filter((t) => t.stopped !== true).length };
+            liveCount: tracks.filter((t) => t.live === true && t.stopped !== true).length,
+            stoppedCount: tracks.filter((t) => t.stopped === true).length };
         } catch (e) {
           // 握りつぶすと「—」が出るだけで原因が見えない
           fail(`トラック数を数えられない: ${e.code ?? e.message}`);
-          return { ...ev, trackCount: null, openCount: 0 };
+          return { ...ev, trackCount: null, liveCount: 0, stoppedCount: 0 };
         }
       }));
       paintList(withCounts);
@@ -57,9 +78,7 @@ export async function createOrganizer({ eventId, random = () => Math.random() } 
         el('createEvent').disabled = false;
       }
     });
-    el('newEventName').addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') el('createEvent').click();
-    });
+    // Enter では作らない。押し間違いでイベントが増えると消す手間になる。
     el('newEventName').focus();
 
     return { kind: 'list', stop: () => unwatch?.() };
@@ -94,8 +113,12 @@ export async function createOrganizer({ eventId, random = () => Math.random() } 
       const st = cell(tr);
       const pill = document.createElement('span');
       if (!ev.trackCount) { pill.className = 'pill mute'; pill.textContent = '準備中'; }
-      else if (ev.openCount === 0) { pill.className = 'pill warn'; pill.textContent = '全停止中'; }
-      else { pill.className = 'pill good'; pill.textContent = `受付中 ${ev.openCount} / ${ev.trackCount}`; }
+      else if (ev.liveCount > 0) {
+        pill.className = 'pill good';
+        pill.textContent = `受付中 ${ev.liveCount} / ${ev.trackCount}`;
+      } else if (ev.stoppedCount === ev.trackCount) {
+        pill.className = 'pill warn'; pill.textContent = '全停止中';
+      } else { pill.className = 'pill mute'; pill.textContent = '開始前'; }
       st.append(pill);
 
       const chev = cell(tr); chev.className = 'chev'; chev.textContent = '›';
@@ -140,10 +163,8 @@ export async function createOrganizer({ eventId, random = () => Math.random() } 
     events.watchTracks(id, (rows) => { tracks = rows; paintTracks(id, rows); },
       (e) => fail(`トラックを読めない: ${e.code ?? e.message}`));
 
+    // Enter では足さない。打ち終わりに Enter を押す癖で増えてしまう。
     el('addTrack').addEventListener('click', () => addTrack(id, tracks));
-    el('newTrackName').addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') addTrack(id, tracks);
-    });
 
     el('stopAll').addEventListener('click', async () => {
       if (!tracks.length) { fail('トラックがありません'); return; }
@@ -182,20 +203,11 @@ export async function createOrganizer({ eventId, random = () => Math.random() } 
       name.style.fontWeight = '700';
       name.textContent = t.name;
 
-      const title = cell(tr);
-      title.className = 'title';
-      const line1 = document.createElement('div');
-      line1.className = 't';
-      line1.textContent = t.title || '次の登壇を待っています';
-      const line2 = document.createElement('div');
-      line2.className = 's';
-      line2.textContent = t.speaker || '—';
-      title.append(line1, line2);
-
+      // 開始前 / 受付中 / 停止中 の3状態。演題の有無では判定しない。
       const st = cell(tr);
       const pill = document.createElement('span');
       if (t.stopped) { pill.className = 'pill bad'; pill.textContent = '停止中'; }
-      else if (!t.title) { pill.className = 'pill mute'; pill.textContent = '開始前'; }
+      else if (!t.live) { pill.className = 'pill mute'; pill.textContent = '開始前'; }
       else { pill.className = 'pill good'; pill.textContent = '受付中'; }
       st.append(pill);
 
@@ -204,29 +216,42 @@ export async function createOrganizer({ eventId, random = () => Math.random() } 
       count.textContent = '—';
       countComments(eventId, t, count);
 
-      const link = cell(tr);
-      link.className = 'link mono muted';
-      link.textContent = shortUrl(stageUrlFor(eventId, t.id, null));
-
-      const actions = cell(tr);
-      actions.className = 'link';
-      const row = document.createElement('div');
-      row.className = 'row tight';
-      const copyBtn = button('リンクをコピー', 'btn', async () => {
+      // 渡す相手ごとに分ける。取り違えると、観客に操作用のリンクを配ることになる。
+      const toSpeaker = cell(tr);
+      toSpeaker.className = 'link';
+      toSpeaker.append(button('登壇用リンクをコピー', 'btn toSpeaker', async () => {
         const code = newHandoffCode(random);
         try {
           await events.setTrackHandoff(eventId, t.id, code);
           await copy(stageUrlFor(eventId, t.id, code));
+          say('登壇用リンクをコピーしました。渡した人だけが操作できます', 'ok');
         } catch (e) { fail(`リンクを作れない: ${e.code ?? e.message}`); }
-      });
-      const qrBtn = button('QRを印刷', 'btn', async () => {
-        const svg = await QRCode.toString(postUrlFor(eventId, t.id),
-          { type: 'svg', errorCorrectionLevel: 'M', margin: 2, width: 360 });
-        printQr(svg, t.name, postUrlFor(eventId, t.id),
-          'スマホで読み取るとコメントを送れます');
-      });
-      row.append(copyBtn, qrBtn);
-      actions.append(row);
+      }));
+
+      const toAudience = cell(tr);
+      toAudience.className = 'link';
+      const audRow = document.createElement('div');
+      audRow.className = 'row tight';
+      audRow.append(
+        button('投稿URLをコピー', 'btn toAudience', async () => {
+          await copy(postUrlFor(eventId, t.id));
+          say('投稿URLをコピーしました', 'ok');
+        }),
+        button('QRを印刷', 'btn toAudience', async () => {
+          const svg = await QRCode.toString(postUrlFor(eventId, t.id),
+            { type: 'svg', errorCorrectionLevel: 'M', margin: 2, width: 360 });
+          printQr(svg, t.name, postUrlFor(eventId, t.id), 'スマホで読み取るとコメントを送れます');
+        }));
+      toAudience.append(audRow);
+
+      const del = cell(tr);
+      del.append(button('削除', 'btn remove', async () => {
+        if (!confirm(`${t.name} を削除します。届いたコメントは見られなくなります。`)) return;
+        try {
+          await sdk.deleteDoc(sdk.doc(db, 'events', eventId, 'tracks', t.id));
+          say(`${t.name} を削除しました`, 'ok');
+        } catch (e) { fail(`削除できない: ${e.code ?? e.message}`); }
+      }));
 
       body.append(tr);
     }

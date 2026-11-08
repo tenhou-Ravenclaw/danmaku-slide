@@ -29,6 +29,7 @@ for (const m of testMode) {
 // どれか1つ欠けるだけで守りが崩れるものを名指しで見張る。
 const invariants = [
   ['認証必須の判定',                      'request.auth != null'],
+  ['運営は匿名では操作できない',          "sign_in_provider != 'anonymous'"],
   ['作成時の ownerUid の固定',            'request.resource.data.ownerUid == request.auth.uid'],
   ['トラックを作れるのは運営だけ',        'get(eventPath()).data.ownerUid == request.auth.uid'],
   ['レート制限（同一バッチの posters 更新の強制）', 'getAfter('],
@@ -40,6 +41,7 @@ const invariants = [
   ['ownerUid の書き換え禁止',             'request.resource.data.ownerUid == resource.data.ownerUid'],
   ['createdAt の書き換え禁止',            'request.resource.data.createdAt == resource.data.createdAt'],
   ['更新できるフィールドの限定',          'affectedKeys()'],
+  ['演題を持たない',                      "hasOnly(['sessionStartedAt','stopped','live'])"],
 ];
 for (const [label, needle] of invariants) {
   check(`${label}（${needle}）`, rules.includes(needle));

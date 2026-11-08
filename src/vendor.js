@@ -4,7 +4,12 @@
 // 初回ロードで外部ホストに依存したくない。ここを esbuild で束ねて同一オリジンから配る。
 // 版も package-lock.json で固定されるので、テストした版がそのまま出る。
 export { initializeApp } from 'firebase/app';
-export { getAuth, signInAnonymously, onAuthStateChanged, connectAuthEmulator } from 'firebase/auth';
+export {
+  getAuth, signInAnonymously, onAuthStateChanged, connectAuthEmulator,
+  GoogleAuthProvider, signInWithPopup, signOut,
+  // エミュレータでの検証用。本番の画面からは呼ばない。
+  signInWithEmailAndPassword, createUserWithEmailAndPassword,
+} from 'firebase/auth';
 export {
   initializeFirestore,
   collection, doc, query, where, orderBy, limit,

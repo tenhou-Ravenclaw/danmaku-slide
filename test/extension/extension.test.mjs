@@ -12,7 +12,9 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as sdk from 'firebase/firestore';
 import { initializeApp } from 'firebase/app';
-import { getAuth, signInAnonymously, connectAuthEmulator } from 'firebase/auth';
+import {
+  getAuth, signInAnonymously, connectAuthEmulator, createUserWithEmailAndPassword,
+} from 'firebase/auth';
 import { createBus, createEventBus } from '../../public/lib/bus.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -58,19 +60,26 @@ const EDIT = `http://127.0.0.1:${PORT}/presentation/d/deck1/edit`;
 
 // --- エミュレータ側にトラックを作る --------------------------------------
 let seq = 0;
-async function person() {
+/**
+ * @param {boolean} staff 運営は匿名では作れない（Rules で拒んでいる）。
+ */
+async function person(staff = false) {
   const app = initializeApp({ ...CONFIG, authDomain: 'localhost' }, `x${++seq}`);
   const db = sdk.initializeFirestore(app, {});
   sdk.connectFirestoreEmulator(db, '127.0.0.1', 8181);
   const auth = getAuth(app);
   connectAuthEmulator(auth, 'http://127.0.0.1:9099', { disableWarnings: true });
-  const { user } = await signInAnonymously(auth);
+  const { user } = staff
+    ? await createUserWithEmailAndPassword(auth, `staff-${seq}-${Date.now()}@example.test`, 'pass1234')
+    : await signInAnonymously(auth);
   return { db, uid: user.uid, events: createEventBus(sdk, { db, uid: user.uid }) };
 }
 const EVENT = 'ext-event', TRACK = 'a';
-const staff = await person();
+const staff = await person(true);
 await staff.events.createEvent(EVENT, { name: 'Extension Event' });
 await staff.events.createTrack(EVENT, TRACK, { name: 'Extension Track' });
+// 開始していないトラックには投稿できない
+await createBus(sdk, { db: staff.db, eventId: EVENT, trackId: TRACK, uid: staff.uid }).startSession();
 const actor = async (trackId = TRACK) => {
   const p = await person();
   return createBus(sdk, { db: p.db, eventId: EVENT, trackId, uid: p.uid });

@@ -69,18 +69,15 @@ export async function createStage({ eventId, trackId, code, now = () => Date.now
     el('trackName').textContent = track.name;
     el('eventName').textContent = eventNameText;
 
-    const started = Boolean(track.title) && !track.stopped;
+    // 演題の有無では判定しない。運営が先に入れておくので。
+    const started = track.live && !track.stopped;
     el('beforeStart').classList.toggle('hidden', started);
     el('afterStart').classList.toggle('hidden', !started);
     el('step2').dataset.state = started ? 'done' : (appConnected ? 'now' : '');
     el('step1').dataset.state = appConnected ? 'done' : 'now';
     el('appOk').classList.toggle('hidden', !appConnected);
 
-    if (started) {
-      el('nowTitle').textContent = track.title;
-      el('nowMeta').textContent =
-        [track.speaker, startedAtText()].filter(Boolean).join(' · ');
-    }
+    if (started) el('nowMeta').textContent = startedAtText() || '受付中';
 
     el('stopBtn').classList.toggle('hidden', track.stopped);
     el('resumeBtn').classList.toggle('hidden', !track.stopped);
@@ -173,10 +170,7 @@ export async function createStage({ eventId, trackId, code, now = () => Date.now
   el('startBtn').addEventListener('click', async () => {
     el('startBtn').disabled = true;
     try {
-      await bus.startSession({
-        title: el('title').value.trim() || '（演題なし）',
-        speaker: el('speaker').value.trim(),
-      });
+      await bus.startSession();
       clearError();
     } catch (e) { fail(`開始できない: ${e.code ?? e.message}`); }
     finally { el('startBtn').disabled = false; }

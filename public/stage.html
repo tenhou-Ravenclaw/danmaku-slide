@@ -43,8 +43,7 @@
   #openApp { margin-top: .9rem; }
   .sub { display: flex; gap: 1rem; margin-top: .6rem; font-size: .82rem; }
 
-  #nowTitle { font-weight: 700; margin-top: .7rem; }
-  #nowMeta { font-size: .82rem; color: var(--muted); }
+  #nowMeta { font-weight: 600; }
 
   /* コメント一覧。登壇者が手元で見る。 */
   .feedcard { padding: 0; overflow: hidden; display: flex; flex-direction: column; }
@@ -89,16 +88,13 @@
     </section>
 
     <section class="card step" id="step2" data-state="">
-      <h2><span class="n">2</span> 演題を入れて開始</h2>
+      <h2><span class="n">2</span> 登壇をはじめる</h2>
       <div id="beforeStart" class="stack" style="margin-top:.7rem">
-        <label class="field"><span>演題</span>
-          <input id="title" maxlength="60" placeholder="はじめてのLT" autocomplete="off"></label>
-        <label class="field"><span>登壇者</span>
-          <input id="speaker" maxlength="40" placeholder="名前" autocomplete="off"></label>
-        <button id="startBtn" class="btn primary block">この内容で開始</button>
+        <p class="muted" style="margin:0;font-size:.85rem">
+          押すとここから先のコメントが流れます。前の登壇の分は流れません。</p>
+        <button id="startBtn" class="btn primary block lg">はじめる</button>
       </div>
       <div id="afterStart" class="hidden">
-        <div id="nowTitle">—</div>
         <div id="nowMeta">—</div>
         <button id="endBtn" class="btn" style="margin-top:.8rem">登壇を終える</button>
       </div>

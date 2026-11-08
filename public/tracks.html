@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#0b0d12" media="(prefers-color-scheme: dark)">
-<link rel="stylesheet" href="./css/app.css">
+<link rel="stylesheet" href="/css/app.css">
 <style>
   body { min-height: 100dvh; display: flex; flex-direction: column;
     padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
@@ -47,7 +47,8 @@
     const q = new URLSearchParams(location.search);
     // /e/<id> から rewrite で来る。直接 ?e= でも開ける。
     const fromPath = location.pathname.match(/^\/e\/([^/]+)\/?$/)?.[1];
-    const { createPicker } = await import('./lib/picker.mjs');
+    // /e/<id> から開かれるので、相対パスだと /e/lib/... を探しに行く
+    const { createPicker } = await import('/lib/picker.mjs');
     window.__picker = await createPicker({ eventId: q.get('e') ?? fromPath });
   } catch (e) { show(e?.message ?? e); }
 </script>

@@ -57,6 +57,7 @@ const capBrowser = await chromium.launch({
 async function open(url, { b = browser, ctx = null, scheme = null } = {}) {
   const context = ctx ?? await b.newContext({
     viewport: { width: 1280, height: 800 },
+    permissions: ['clipboard-read', 'clipboard-write'],
     ...(scheme ? { colorScheme: scheme } : {}),
   });
   const page = await context.newPage();
@@ -77,10 +78,40 @@ const drawnPixels = (page) => page.evaluate(() => {
 });
 
 /** 運営の画面を開いて、イベントとトラックを作らせる。 */
+/**
+ * 運営としてサインインする。匿名では作れない（Rules で拒んでいる）。
+ * 同じブラウザの2枚目以降はセッションが復元されるので、門は出ない。
+ */
+async function signInAsOrganizer(page) {
+  await page.waitForFunction(() =>
+    document.querySelector('#signIn')?.offsetParent !== null ||
+    document.querySelector('#newEventName')?.offsetParent !== null, { timeout: 25000 });
+  if (await page.isVisible('#signIn')) await page.click('#signIn');
+  await page.waitForSelector('#newEventName', { state: 'visible', timeout: 25000 });
+}
+
+/**
+ * 運営の画面で「登壇用リンクをコピー」を押して、そのリンクを受け取る。
+ *
+ * 登壇者ページは匿名で入るので、運営と同じブラウザでも操作権がない。
+ * 合言葉つきのリンクを通るのが本来の流れで、テストも同じ道を通す。
+ */
+async function speakerLink(orgPage, row = 0) {
+  // 前回の値を読まないよう、いったん空にしてから押す
+  await orgPage.evaluate(() => navigator.clipboard.writeText(''));
+  await orgPage.locator('#tracks tr').nth(row).locator('.btn.toSpeaker').click();
+  await orgPage.waitForFunction(async () => {
+    const v = await navigator.clipboard.readText();
+    return /stage\.html/.test(v) && /\bk=/.test(v);
+  }, { timeout: 20000 });
+  const url = await orgPage.evaluate(() => navigator.clipboard.readText());
+  return url.replace(/^https?:\/\/[^/]+/, HOST) + '&emu=1';
+}
+
 async function makeEventInBrowser(name, trackNames = ['Track A']) {
   const r = await open(`${HOST}/organizer.html?emu=1`);
   // 運営が作ったものを同じ人として触れるよう、ctx を返して使い回す
-  await r.page.waitForSelector('#newEventName', { state: 'visible', timeout: 20000 });
+  await signInAsOrganizer(r.page);
   await r.page.fill('#newEventName', name);
   await r.page.fill('#newEventDate', '2026-12-12');
   await r.page.click('#createEvent');
@@ -89,11 +120,33 @@ async function makeEventInBrowser(name, trackNames = ['Track A']) {
   const eventId = new URL(r.page.url()).searchParams.get('e');
   for (const [i, n] of trackNames.entries()) {
     await r.page.fill('#newTrackName', n);
+    // Enter では足さない作りなので、必ず押す
     await r.page.click('#addTrack');
     await r.page.waitForFunction(
       (want) => document.querySelectorAll('#tracks tr').length >= want, i + 1, { timeout: 20000 });
   }
   return { ...r, eventId };
+}
+
+/**
+ * 登壇を開始させる。開始前のトラックには投稿できない。
+ * 投稿まわりを見たいテストは、この状態から始める。
+ */
+async function startTrack(orgPage, row = 0) {
+  const sp = await open(await speakerLink(orgPage, row));
+  await sp.page.waitForFunction(
+    () => /受付中|停止中/.test(document.getElementById('stateText')?.textContent ?? ''), { timeout: 25000 });
+  await sp.page.click('#startBtn');
+  await sp.page.waitForFunction(
+    () => !document.getElementById('afterStart').classList.contains('hidden'), { timeout: 25000 });
+  await sp.page.close();
+}
+
+/** イベントとトラックを作り、開始済みにする。 */
+async function makeLiveEvent(name, trackNames = ['Track A']) {
+  const org = await makeEventInBrowser(name, trackNames);
+  for (let i = 0; i < trackNames.length; i++) await startTrack(org.page, i);
+  return org;
 }
 
 // --- 運営の画面 ---------------------------------------------------------
@@ -116,12 +169,15 @@ await t('トラックを並べると名前順で表に出る', async () => {
   await page.close();
 });
 
-await t('トラックごとに登壇者へ渡すリンクが出る', async () => {
-  const { page } = await makeEventInBrowser('リンクの会', ['Track A']);
-  const link = await page.textContent('#tracks tr td:nth-child(5)');
-  assert(/stage\.html\?e=/.test(link), `リンクが出ていない: ${link}`);
-  assert(/t=/.test(link), link);
-  await page.close();
+await t('登壇用リンクには合言葉が入り、押すたびに変わる', async () => {
+  // 渡した人だけが操作できる。使い回さない。
+  const org = await makeEventInBrowser('リンクの会', ['Track A']);
+  const a = await speakerLink(org.page);
+  const b = await speakerLink(org.page);
+  const ka = new URL(a).searchParams.get('k'), kb = new URL(b).searchParams.get('k');
+  assert(/stage\.html/.test(a), a);
+  assert(ka && kb && ka !== kb, `合言葉が変わらない: ${ka} / ${kb}`);
+  await org.page.close();
 });
 
 await t('チラシ用QRが読み取れる', async () => {
@@ -147,10 +203,10 @@ await t('チラシ用QRが読み取れる', async () => {
 });
 
 await t('受付状況がトラックの数とともに出る', async () => {
-  const { page, eventId } = await makeEventInBrowser('状況の会', ['Track A', 'Track B']);
+  const { page, eventId } = await makeLiveEvent('状況の会', ['Track A', 'Track B']);
   const list = await open(`${HOST}/organizer.html?emu=1`, { ctx: page.context() });
+  await list.page.waitForSelector('#newEventName', { state: 'visible', timeout: 25000 });
   // トラック数は一覧に入っていないので、イベントごとに数え直している。
-  // 数え終わるまでは「—」なので、出そろうのを待つ。
   await list.page.waitForFunction(
     () => [...document.querySelectorAll('#upcoming tr')]
       .some((tr) => tr.textContent.includes('状況の会') && /\d+ トラック/.test(tr.textContent)),
@@ -162,7 +218,7 @@ await t('受付状況がトラックの数とともに出る', async () => {
 });
 
 await t('全トラックの投稿を止められる', async () => {
-  const { page, eventId } = await makeEventInBrowser('非常停止の会', ['Track A', 'Track B']);
+  const { page, eventId } = await makeLiveEvent('非常停止の会', ['Track A', 'Track B']);
   await page.click('#stopAll');
   await page.waitForFunction(
     () => document.querySelectorAll('#tracks .pill.bad').length === 2, { timeout: 20000 });
@@ -186,7 +242,7 @@ await t('リンクが不完全なら理由が出る', async () => {
 
 await t('登壇者ページは手順1から始まる', async () => {
   const org = await makeEventInBrowser('手順の会', ['Track A']);
-  const { page, errors } = await open(`${HOST}/stage.html?emu=1&e=${org.eventId}&t=a`, { ctx: org.ctx });
+  const { page, errors } = await open(await speakerLink(org.page));
   await page.waitForFunction(
     () => /受付中|停止中/.test(document.getElementById('stateText')?.textContent ?? ''), { timeout: 20000 });
   assert(await page.getAttribute('#step1', 'data-state') === 'now', '手順1が「いま」でない');
@@ -198,7 +254,7 @@ await t('登壇者ページは手順1から始まる', async () => {
 
 await t('「アプリで開く」は danmaku:// を指す', async () => {
   const org = await makeEventInBrowser('アプリの会', ['Track A']);
-  const { page } = await open(`${HOST}/stage.html?emu=1&e=${org.eventId}&t=a&k=CODE2345`, { ctx: org.ctx });
+  const { page } = await open(await speakerLink(org.page));
   await page.waitForFunction(
     () => document.getElementById('openApp')?.getAttribute('href')?.startsWith('danmaku:'),
     { timeout: 20000 });
@@ -206,22 +262,21 @@ await t('「アプリで開く」は danmaku:// を指す', async () => {
   const u = new URL(href);
   assert(u.searchParams.get('e') === org.eventId, href);
   assert(u.searchParams.get('t') === 'a', href);
-  assert(u.searchParams.get('k') === 'CODE2345', href);
+  assert(/^[23456789A-HJ-NP-Z]{8}$/.test(u.searchParams.get('k') ?? ''), href);
   await page.close(); await org.page.close();
 });
 
-await t('演題を入れて開始すると、いまの登壇として出る', async () => {
+await t('登壇者は押すだけで始められる', async () => {
+  // 演題は持たない。入力させるものが無い。
   const org = await makeEventInBrowser('開始の会', ['Track A']);
-  const { page, errors } = await open(`${HOST}/stage.html?emu=1&e=${org.eventId}&t=a`, { ctx: org.ctx });
+  const { page, errors } = await open(await speakerLink(org.page));
   await page.waitForFunction(
-    () => /受付中/.test(document.getElementById('stateText')?.textContent ?? ''), { timeout: 20000 });
-  await page.fill('#title', 'はじめてのLT');
-  await page.fill('#speaker', '佐藤 葵');
+    () => /受付中|停止中/.test(document.getElementById('stateText')?.textContent ?? ''), { timeout: 20000 });
+  assert(await page.evaluate(() => document.querySelectorAll('#beforeStart input').length) === 0,
+    '入力欄が残っている');
   await page.click('#startBtn');
   await page.waitForFunction(
     () => !document.getElementById('afterStart').classList.contains('hidden'), { timeout: 20000 });
-  assert(/はじめてのLT/.test(await page.textContent('#nowTitle')), await page.textContent('#nowTitle'));
-  assert(/佐藤 葵/.test(await page.textContent('#nowMeta')), await page.textContent('#nowMeta'));
   // 開始時刻はサーバが決めるので、確定するまで少し待つ
   await page.waitForFunction(
     () => /\d{2}:\d{2} 開始/.test(document.getElementById('nowMeta')?.textContent ?? ''),
@@ -230,8 +285,29 @@ await t('演題を入れて開始すると、いまの登壇として出る', as
   await page.close(); await org.page.close();
 });
 
+await t('開始前は投稿できず、開始すると送れる', async () => {
+  const org = await makeEventInBrowser('開始前の会', ['Track A']);
+  const po = await open(`${HOST}/post.html?emu=1&e=${org.eventId}&t=a`);
+  await po.page.waitForFunction(
+    () => /次の登壇を待っています/.test(document.getElementById('title')?.textContent ?? ''),
+    { timeout: 20000 });
+  await po.page.fill('#text', 'まだ早い');
+  await po.page.waitForTimeout(400);
+  assert(await po.page.isDisabled('#send'), '開始前なのに押せる');
+
+  const sp = await open(await speakerLink(org.page));
+  await sp.page.waitForFunction(
+    () => /受付中|停止中/.test(document.getElementById('stateText')?.textContent ?? ''), { timeout: 20000 });
+  await sp.page.click('#startBtn');
+
+  await po.page.waitForFunction(
+    () => /登壇中/.test(document.getElementById('title')?.textContent ?? ''), { timeout: 20000 });
+  await po.page.waitForFunction(() => !document.getElementById('send').disabled, { timeout: 20000 });
+  await sp.page.close(); await po.page.close(); await org.page.close();
+});
+
 await t('届いたコメントが手元に出て、件数が増える', async () => {
-  const org = await makeEventInBrowser('コメントの会', ['Track A']);
+  const org = await makeLiveEvent('コメントの会', ['Track A']);
   const { page } = await open(`${HOST}/stage.html?emu=1&e=${org.eventId}&t=a`, { ctx: org.ctx });
   await page.waitForFunction(
     () => /受付中/.test(document.getElementById('stateText')?.textContent ?? ''), { timeout: 20000 });
@@ -248,10 +324,9 @@ await t('届いたコメントが手元に出て、件数が増える', async ()
 
 await t('登壇を終えると投稿が止まる', async () => {
   const org = await makeEventInBrowser('終了の会', ['Track A']);
-  const { page } = await open(`${HOST}/stage.html?emu=1&e=${org.eventId}&t=a`, { ctx: org.ctx });
+  const { page } = await open(await speakerLink(org.page));
   await page.waitForFunction(
     () => /受付中/.test(document.getElementById('stateText')?.textContent ?? ''), { timeout: 20000 });
-  await page.fill('#title', 'おわる登壇');
   await page.click('#startBtn');
   await page.waitForFunction(
     () => !document.getElementById('afterStart').classList.contains('hidden'), { timeout: 20000 });
@@ -266,7 +341,59 @@ await t('登壇を終えると投稿が止まる', async () => {
   await page.close(); await org.page.close();
 });
 
+await t('Enter では足さない（押し間違いで増やさない）', async () => {
+  const org = await makeEventInBrowser('Enterの会', []);
+  await org.page.fill('#newTrackName', 'Track Z');
+  await org.page.press('#newTrackName', 'Enter');
+  await org.page.waitForTimeout(1200);
+  const n = await org.page.evaluate(() => document.querySelectorAll('#tracks tr').length);
+  assert(n === 0, `Enter で増えた: ${n}`);
+  await org.page.click('#addTrack');
+  await org.page.waitForFunction(() => document.querySelectorAll('#tracks tr').length === 1, { timeout: 20000 });
+  await org.page.close();
+});
+
+await t('トラックを削除できる', async () => {
+  const org = await makeEventInBrowser('削除の会', ['Track A', 'Track B']);
+  org.page.on('dialog', (d) => d.accept());
+  await org.page.locator('#tracks tr').first().locator('.btn.remove').click();
+  await org.page.waitForFunction(
+    () => document.querySelectorAll('#tracks tr').length === 1, { timeout: 20000 });
+  const left = await org.page.textContent('#tracks');
+  assert(/Track B/.test(left) && !/Track A/.test(left), `残り方が変: ${left}`);
+  await org.page.close();
+});
+
+await t('渡す相手ごとにボタンが分かれている', async () => {
+  // 取り違えると、観客に操作用のリンクを配ることになる
+  const org = await makeEventInBrowser('リンク区別の会', ['Track A']);
+  const row = org.page.locator('#tracks tr').first();
+  assert(await row.locator('.btn.toSpeaker').count() === 1, '登壇用が無い');
+  assert(await row.locator('.btn.toAudience').count() === 2, '観客用が足りない');
+  assert(await row.locator('input').count() === 0, '演題の入力欄が残っている');
+  assert(/登壇用リンク/.test(await row.locator('.btn.toSpeaker').textContent()),
+    await row.locator('.btn.toSpeaker').textContent());
+  await org.page.close();
+});
+
+await t('サインインしていないと作る画面を出さない', async () => {
+  const r = await open(`${HOST}/organizer.html?emu=1`);
+  await r.page.waitForSelector('#signIn', { state: 'visible', timeout: 20000 });
+  assert(await r.page.isHidden('#newEventName'), 'サインイン前に作れる');
+  await r.page.close();
+});
+
 // --- 観客の画面 ---------------------------------------------------------
+await t('/e/<id> の形でも開ける', async () => {
+  // rewrite で tracks.html が返る。相対パスで読むと /e/lib/... を探しに行く。
+  const org = await makeEventInBrowser('パスの会', ['Track A', 'Track B']);
+  const { page, errors } = await open(`${HOST}/e/${org.eventId}?emu=1`);
+  await page.waitForFunction(
+    () => document.querySelectorAll('#list a').length === 2, { timeout: 20000 });
+  assert(errors.length === 0, `エラー: ${errors.join(' / ')}`);
+  await page.close(); await org.page.close();
+});
+
 await t('トラックが複数あれば選ばせる', async () => {
   const org = await makeEventInBrowser('選択の会', ['Track A', 'Track B']);
   const { page, errors } = await open(`${HOST}/tracks.html?emu=1&e=${org.eventId}`);
@@ -287,7 +414,7 @@ await t('トラックが1つなら選ばせず投稿ページへ送る', async (
 });
 
 await t('投稿ページは開いた時点で入力欄にフォーカスが当たる', async () => {
-  const org = await makeEventInBrowser('フォーカスの会', ['Track A']);
+  const org = await makeLiveEvent('フォーカスの会', ['Track A']);
   const { page, errors } = await open(`${HOST}/post.html?emu=1&e=${org.eventId}&t=a`);
   await page.waitForFunction(
     () => /Track A/.test(document.getElementById('track')?.textContent ?? ''), { timeout: 20000 });
@@ -298,7 +425,7 @@ await t('投稿ページは開いた時点で入力欄にフォーカスが当�
 
 await t('文字数超過でも入力は止めず、削る文字数を出す', async () => {
   // 貼り付けを黙って切ると、何を消されたか分からない
-  const org = await makeEventInBrowser('文字数の会', ['Track A']);
+  const org = await makeLiveEvent('文字数の会', ['Track A']);
   const { page } = await open(`${HOST}/post.html?emu=1&e=${org.eventId}&t=a`);
   await page.waitForFunction(
     () => /Track A/.test(document.getElementById('track')?.textContent ?? ''), { timeout: 20000 });
@@ -312,7 +439,7 @@ await t('文字数超過でも入力は止めず、削る文字数を出す', as
 });
 
 await t('連投すると残り秒数がボタンと状態行の両方に出る', async () => {
-  const org = await makeEventInBrowser('連投の会', ['Track A']);
+  const org = await makeLiveEvent('連投の会', ['Track A']);
   const { page } = await open(`${HOST}/post.html?emu=1&e=${org.eventId}&t=a`);
   await page.waitForFunction(
     () => /Track A/.test(document.getElementById('track')?.textContent ?? ''), { timeout: 20000 });
@@ -328,12 +455,13 @@ await t('連投すると残り秒数がボタンと状態行の両方に出る',
 });
 
 await t('登壇終了中は理由が出て、再スキャンが要らないと伝える', async () => {
-  const org = await makeEventInBrowser('終了表示の会', ['Track A']);
-  // 運営本人として終える（運営はイベント配下のトラックを操作できる）
-  const sp = await open(`${HOST}/stage.html?emu=1&e=${org.eventId}&t=a`, { ctx: org.ctx });
+  const org = await makeLiveEvent('終了表示の会', ['Track A']);
+  const sp = await open(await speakerLink(org.page));
   await sp.page.waitForFunction(
-    () => /受付中|停止中/.test(document.getElementById('stateText')?.textContent ?? ''), { timeout: 20000 });
-  await sp.page.evaluate(() => window.__stage.bus.endSession());
+    () => /受付中/.test(document.getElementById('stateText')?.textContent ?? ''), { timeout: 20000 });
+  await sp.page.click('#endBtn');
+  await sp.page.waitForFunction(
+    () => /停止中/.test(document.getElementById('stateText')?.textContent ?? ''), { timeout: 20000 });
   await sp.page.close();
   const { page } = await open(`${HOST}/post.html?emu=1&e=${org.eventId}&t=a`);
   await page.waitForFunction(
@@ -344,7 +472,7 @@ await t('登壇終了中は理由が出て、再スキャンが要らないと�
 });
 
 await t('投稿が弾幕ページに流れる（通し）', async () => {
-  const org = await makeEventInBrowser('通しの会', ['Track A']);
+  const org = await makeLiveEvent('通しの会', ['Track A']);
   const ov = await open(`${HOST}/overlay.html?emu=1&e=${org.eventId}&t=a`);
   await ov.page.waitForFunction(
     () => /Track A/.test(document.getElementById('hud')?.textContent ?? ''), { timeout: 20000 });
@@ -379,7 +507,7 @@ await t('透過シェルから開いたときは操作バーを出さない', as
 });
 
 await t('再読み込みしても溜まっていた分は流れない', async () => {
-  const org = await makeEventInBrowser('溜まりの会', ['Track A']);
+  const org = await makeLiveEvent('溜まりの会', ['Track A']);
   for (let i = 0; i < 3; i++) {
     const po = await actor();
     await busFor(po, org.eventId, 'a').post(`溜まっていた ${i}`);
@@ -463,7 +591,7 @@ async function readable(page, selectors) {
 for (const scheme of ['light', 'dark']) {
   await t(`運営の画面が ${scheme} で読める`, async () => {
     const r = await open(`${HOST}/organizer.html?emu=1`, { scheme });
-    await r.page.waitForSelector('#newEventName', { state: 'visible', timeout: 20000 });
+    await signInAsOrganizer(r.page);
     const pairs = await readable(r.page, ['h1.title', '.lead', 'h2.section', '#createEvent']);
     assert(pairs.length === 4, `要素が足りない: ${pairs.length}`);
     for (const { sel, fg, bg } of pairs) {
@@ -479,7 +607,7 @@ for (const scheme of ['light', 'dark']) {
   });
 
   await t(`投稿ページが ${scheme} で読める`, async () => {
-    const org = await makeEventInBrowser(`配色の会 ${scheme}`, ['Track A']);
+    const org = await makeLiveEvent(`配色の会 ${scheme}`, ['Track A']);
     const r = await open(`${HOST}/post.html?emu=1&e=${org.eventId}&t=a`, { scheme });
     await r.page.waitForFunction(
       () => /Track A/.test(document.getElementById('track')?.textContent ?? ''), { timeout: 20000 });

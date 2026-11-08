@@ -27,19 +27,24 @@ await env.withSecurityRulesDisabled(async (ctx) => {
   });
   await setDoc(doc(db, 'events/ev1/private/handoff'), { code: 'EVENT-CODE' });
   await setDoc(doc(db, 'events/ev1/tracks/tA'), {
-    name: 'Track A', title: '', speaker: '', stopped: false,
+    name: 'Track A', stopped: false, live: false,
     sessionStartedAt: Timestamp.now(), createdAt: Timestamp.now(),
   });
   await setDoc(doc(db, 'events/ev1/tracks/tA/private/handoff'), { code: 'TRACK-A-CODE' });
   await setDoc(doc(db, 'events/ev1/tracks/tA/comments/c1'), { text: 'hello', createdAt: Timestamp.now() });
   await setDoc(doc(db, 'events/ev1/tracks/tStopped'), {
-    name: 'Track Z', title: '', speaker: '', stopped: true,
+    name: 'Track Z', stopped: true, live: false,
     sessionStartedAt: Timestamp.now(), createdAt: Timestamp.now(),
   });
 });
 
 const anon = () => env.unauthenticatedContext().firestore();
-const as   = (uid) => env.authenticatedContext(uid).firestore();
+/** 匿名サインイン。観客と登壇者はこちら。 */
+const as = (uid) =>
+  env.authenticatedContext(uid, { firebase: { sign_in_provider: 'anonymous' } }).firestore();
+/** 本人確認できる人。運営はこちら。 */
+const asStaff = (uid) =>
+  env.authenticatedContext(uid, { firebase: { sign_in_provider: 'google.com' } }).firestore();
 
 // 投稿は「コメント + posters」のバッチ。アプリ側もこの形で書く。
 function post(db, trackId, uid, text, eventId = 'ev1') {
@@ -58,60 +63,91 @@ await t('T1 未認証はコメントを読めない',
 await t('T1 未認証は投稿できない', () => assertFails(post(anon(), 'tA', 'nobody', 'hi')));
 
 // --- EV: イベント -------------------------------------------------------
-await t('EV 認証済みならイベントを作れる', () => assertSucceeds(setDoc(doc(as('u1'), 'events/mine'), {
+await t('EV 認証済みならイベントを作れる', () => assertSucceeds(setDoc(doc(asStaff('u1'), 'events/mine'), {
   name: 'My Event', heldOn: '2027-01-01', ownerUid: 'u1', createdAt: serverTimestamp() })));
-await t('EV 作成時に ownerUid を偽装できない', () => assertFails(setDoc(doc(as('u1'), 'events/forged'), {
+await t('EV 作成時に ownerUid を偽装できない', () => assertFails(setDoc(doc(asStaff('u1'), 'events/forged'), {
   name: 'X', heldOn: '2027-01-01', ownerUid: 'victim', createdAt: serverTimestamp() })));
 await t('EV 他人はイベント名を変えられない',
-  () => assertFails(updateDoc(doc(as('attacker'), 'events/ev1'), { name: 'のっとり' })));
+  () => assertFails(updateDoc(doc(asStaff('attacker'), 'events/ev1'), { name: 'のっとり' })));
 await t('EV owner はイベント名を変えられる',
-  () => assertSucceeds(updateDoc(doc(as('staff'), 'events/ev1'), { name: '学内LT大会 冬' })));
+  () => assertSucceeds(updateDoc(doc(asStaff('staff'), 'events/ev1'), { name: '学内LT大会 冬' })));
 await t('EV owner でも ownerUid は奪えない',
-  () => assertFails(updateDoc(doc(as('staff'), 'events/ev1'), { ownerUid: 'other' })));
-await t('EV 他人はイベントを消せない', () => assertFails(deleteDoc(doc(as('attacker'), 'events/ev1'))));
+  () => assertFails(updateDoc(doc(asStaff('staff'), 'events/ev1'), { ownerUid: 'other' })));
+await t('EV 他人はイベントを消せない', () => assertFails(deleteDoc(doc(asStaff('attacker'), 'events/ev1'))));
 await t('EV 一覧の大量取得は落ちる',
-  () => assertFails(getDocs(query(collection(as('u1'), 'events'), limit(500)))));
+  () => assertFails(getDocs(query(collection(asStaff('u1'), 'events'), limit(500)))));
+
+await t('EV 匿名ではイベントを作れない', () => assertFails(setDoc(doc(as('anon1'), 'events/byanon'), {
+  name: '匿名の会', heldOn: '', ownerUid: 'anon1', createdAt: serverTimestamp() })));
+await t('EV 匿名ではイベント名を変えられない',
+  () => assertFails(updateDoc(doc(as('staff'), 'events/ev1'), { name: '匿名から' })));
+await t('EV 匿名ではイベントを消せない', () => assertFails(deleteDoc(doc(as('staff'), 'events/ev1'))));
 
 // --- TR: トラック -------------------------------------------------------
-await t('TR 運営はトラックを作れる', () => assertSucceeds(setDoc(doc(as('staff'), 'events/ev1/tracks/tNew'), {
-  name: 'Track D', title: '', speaker: '', stopped: false,
+await t('TR 運営はトラックを作れる', () => assertSucceeds(setDoc(doc(asStaff('staff'), 'events/ev1/tracks/tNew'), {
+  name: 'Track D', stopped: false, live: false, live: false,
   sessionStartedAt: serverTimestamp(), createdAt: serverTimestamp() })));
 await t('TR 運営以外はトラックを作れない',
-  () => assertFails(setDoc(doc(as('attacker'), 'events/ev1/tracks/tBad'), {
-    name: 'Track X', title: '', speaker: '', stopped: false,
+  () => assertFails(setDoc(doc(asStaff('attacker'), 'events/ev1/tracks/tBad'), {
+    name: 'Track X', stopped: false, live: false,
+    sessionStartedAt: serverTimestamp(), createdAt: serverTimestamp() })));
+await t('TR 作成時に live を true にはできない',
+  () => assertFails(setDoc(doc(asStaff('staff'), 'events/ev1/tracks/tLive'), {
+    name: 'Track L', stopped: false, live: true,
     sessionStartedAt: serverTimestamp(), createdAt: serverTimestamp() })));
 await t('TR 停止状態を作成時に true にはできない',
-  () => assertFails(setDoc(doc(as('staff'), 'events/ev1/tracks/tBad2'), {
-    name: 'Track X', title: '', speaker: '', stopped: true,
+  () => assertFails(setDoc(doc(asStaff('staff'), 'events/ev1/tracks/tBad2'), {
+    name: 'Track X', stopped: true, live: false,
     sessionStartedAt: serverTimestamp(), createdAt: serverTimestamp() })));
 await t('TR 他人は stopped を書けない',
   () => assertFails(updateDoc(doc(as('attacker'), 'events/ev1/tracks/tA'), { stopped: true })));
 await t('TR 他人は sessionStartedAt を書けない',
   () => assertFails(updateDoc(doc(as('attacker'), 'events/ev1/tracks/tA'), { sessionStartedAt: serverTimestamp() })));
 await t('TR 運営は stopped を書ける',
-  () => assertSucceeds(updateDoc(doc(as('staff'), 'events/ev1/tracks/tA'), { stopped: false })));
-await t('TR 運営は演題を書ける',
-  () => assertSucceeds(updateDoc(doc(as('staff'), 'events/ev1/tracks/tA'), { title: 'はじめてのLT' })));
+  () => assertSucceeds(updateDoc(doc(asStaff('staff'), 'events/ev1/tracks/tA'), { stopped: false })));
+await t('TR 演題は持たない（書こうとすると落ちる）',
+  () => assertFails(updateDoc(doc(asStaff('staff'), 'events/ev1/tracks/tA'), { title: 'はじめてのLT' })));
 await t('TR createdAt は書き換えられない',
-  () => assertFails(updateDoc(doc(as('staff'), 'events/ev1/tracks/tA'), { createdAt: serverTimestamp() })));
+  () => assertFails(updateDoc(doc(asStaff('staff'), 'events/ev1/tracks/tA'), { createdAt: serverTimestamp() })));
 await t('TR 名前は後から変えられない',
-  () => assertFails(updateDoc(doc(as('staff'), 'events/ev1/tracks/tA'), { name: 'Track ZZ' })));
+  () => assertFails(updateDoc(doc(asStaff('staff'), 'events/ev1/tracks/tA'), { name: 'Track ZZ' })));
 await t('TR 他人はトラックを消せない',
-  () => assertFails(deleteDoc(doc(as('attacker'), 'events/ev1/tracks/tA'))));
+  () => assertFails(deleteDoc(doc(asStaff('attacker'), 'events/ev1/tracks/tA'))));
+
+await t('TR 匿名ではトラックを作れない',
+  () => assertFails(setDoc(doc(as('staff'), 'events/ev1/tracks/tAnon'), {
+    name: 'Track Anon', stopped: false, live: false,
+    sessionStartedAt: serverTimestamp(), createdAt: serverTimestamp() })));
+await t('TR 匿名ではトラックを消せない',
+  () => assertFails(deleteDoc(doc(as('staff'), 'events/ev1/tracks/tStopped'))));
+await t('TR 運営はトラックを消せる', async () => {
+  await assertSucceeds(setDoc(doc(asStaff('staff'), 'events/ev1/tracks/tDel'), {
+    name: 'Track Del', stopped: false, live: false,
+    sessionStartedAt: serverTimestamp(), createdAt: serverTimestamp() }));
+  await assertSucceeds(deleteDoc(doc(asStaff('staff'), 'events/ev1/tracks/tDel')));
+});
+await t('TR 匿名の登壇者でも開始・停止はできる', async () => {
+  // 登壇中に本人確認を挟むのは現実的でない。合言葉で足りる。
+  await assertSucceeds(setDoc(doc(as('sp9'), 'events/ev1/tracks/tA/operators/sp9'), { code: 'TRACK-A-CODE' }));
+  await assertSucceeds(updateDoc(doc(as('sp9'), 'events/ev1/tracks/tA'), { stopped: true }));
+  await assertSucceeds(updateDoc(doc(as('sp9'), 'events/ev1/tracks/tA'), { stopped: false }));
+});
 
 // --- HO: 引き継ぎ -------------------------------------------------------
 await t('HO イベントの引き継ぎコードは誰も読めない',
   () => assertFails(getDoc(doc(as('attacker'), 'events/ev1/private/handoff'))));
 await t('HO owner 自身も読めない',
-  () => assertFails(getDoc(doc(as('staff'), 'events/ev1/private/handoff'))));
+  () => assertFails(getDoc(doc(asStaff('staff'), 'events/ev1/private/handoff'))));
 await t('HO owner 以外は private に書けない',
-  () => assertFails(setDoc(doc(as('attacker'), 'events/ev1/private/handoff'), { code: 'X' })));
+  () => assertFails(setDoc(doc(asStaff('attacker'), 'events/ev1/private/handoff'), { code: 'X' })));
 await t('HO 誤コードでは運営を手伝えない',
   () => assertFails(setDoc(doc(as('helper'), 'events/ev1/operators/helper'), { code: 'WRONG' })));
 await t('HO 正コードで運営を手伝える',
   () => assertSucceeds(setDoc(doc(as('helper'), 'events/ev1/operators/helper'), { code: 'EVENT-CODE' })));
 await t('HO 運営を手伝う人はトラックを操作できる',
   () => assertSucceeds(updateDoc(doc(as('helper'), 'events/ev1/tracks/tA'), { stopped: false })));
+await t('HO 手伝う人でも匿名ではイベント名を変えられない',
+  () => assertFails(updateDoc(doc(as('helper'), 'events/ev1'), { name: '手伝いから' })));
 
 await t('HO トラックの引き継ぎコードは誰も読めない',
   () => assertFails(getDoc(doc(as('speaker1'), 'events/ev1/tracks/tA/private/handoff'))));
@@ -159,7 +195,7 @@ await t('T3 コメントは書き換えられない',
 await t('T3 コメントは消せない',
   () => assertFails(deleteDoc(doc(as('attacker'), 'events/ev1/tracks/tA/comments/c1'))));
 await t('T3 運営でもコメントは消せない',
-  () => assertFails(deleteDoc(doc(as('staff'), 'events/ev1/tracks/tA/comments/c1'))));
+  () => assertFails(deleteDoc(doc(asStaff('staff'), 'events/ev1/tracks/tA/comments/c1'))));
 
 // --- T4: レート制限と読み取り量 -----------------------------------------
 await t('T4 posters を伴わない単発投稿は落ちる',

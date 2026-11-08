@@ -30,11 +30,16 @@
                background: var(--bad-bg); border-radius: var(--radius); }
   .emergency .label { font-size: .72rem; font-weight: 700; color: var(--bad); margin-bottom: .45rem; }
 
-  td.title { max-width: 22rem; }
-  td.title .t { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  td.title .s { font-size: .8rem; color: var(--muted); }
   td.count { text-align: right; font-variant-numeric: tabular-nums; }
   td.link { white-space: nowrap; }
+  /* 渡す相手で色を変える。取り違えると事故になる。 */
+  .btn.toSpeaker { border-color: color-mix(in oklab, var(--accent) 45%, var(--line2));
+                   color: var(--accent); }
+  .btn.toAudience { border-color: color-mix(in oklab, var(--good) 45%, var(--line2));
+                    color: var(--good); }
+  .btn.remove { color: var(--bad); border-color: transparent; background: transparent; padding: .4rem .5rem; }
+  .btn.remove:hover { background: var(--bad-bg); }
+
   .foot { font-size: .8rem; color: var(--muted); margin-top: .6rem; }
   #msg { min-height: 1.4rem; font-size: .85rem; }
   #msg[data-kind="ok"]  { color: var(--good); }
@@ -45,11 +50,21 @@
   <span class="name">弾幕スライド</span>
   <span class="pill mute">運営</span>
   <span class="spacer"></span>
-  <span class="muted mono" id="who"></span>
+  <span class="muted" id="who"></span>
+  <button id="signOut" class="btn quiet hidden">サインアウト</button>
 </div>
 
 <main class="page stack">
   <p id="msg" data-kind=""></p>
+
+  <!-- サインインしていないとき -->
+  <section id="gateView" class="card hidden" style="padding:2rem 1.5rem;text-align:center">
+    <h1 class="title" style="font-size:1.35rem">運営としてサインイン</h1>
+    <p class="lead" style="margin:.4rem auto 1.5rem;max-width:30rem">
+      イベントとトラックは当日まで残ります。端末を変えても同じものを開けるように、
+      Google アカウントで入ってください。</p>
+    <button id="signIn" class="btn primary lg">Google で続ける</button>
+  </section>
 
   <!-- イベント一覧 -->
   <section id="listView" class="stack hidden">
@@ -113,8 +128,9 @@
 
     <div class="card"><table class="rows">
       <thead><tr>
-        <th>トラック</th><th>いまの演題 · 登壇者</th><th>受付</th>
-        <th style="text-align:right">届いた件数</th><th>登壇者に渡すリンク</th><th></th>
+        <th>トラック</th><th>受付</th>
+        <th style="text-align:right">届いた件数</th>
+        <th>登壇者に渡す</th><th>観客に配る</th><th></th>
       </tr></thead>
       <tbody id="tracks"></tbody>
       <tfoot><tr>
@@ -127,7 +143,10 @@
         </td>
       </tr></tfoot>
     </table></div>
-    <p class="foot">「QRを印刷」はトラック直指しのQR（部屋の入口用）。チラシには右上のイベント全体のQRを使います。</p>
+    <p class="foot">
+  <strong>登壇者に渡す</strong>リンクは、押すたびに新しい合言葉を発行します。渡した人だけがそのトラックを操作できます。<br>
+  <strong>観客に配る</strong>QRは部屋の入口用。チラシには右上のイベント全体のQRを使います。
+</p>
   </section>
 </main>
 

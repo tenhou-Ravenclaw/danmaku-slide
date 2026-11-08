@@ -69,7 +69,7 @@ export function createEventBus(sdk, { db, uid }) {
     /** トラックを足す。作れるのはイベントの owner だけ（Rules で縛っている）。 */
     createTrack(eventId, trackId, { name }) {
       return setDoc(doc(db, 'events', eventId, 'tracks', trackId), {
-        name, title: '', speaker: '', stopped: false,
+        name, stopped: false, live: false,
         sessionStartedAt: serverTimestamp(), createdAt: serverTimestamp(),
       });
     },
@@ -114,9 +114,9 @@ export function createBus(sdk, { db, eventId, trackId, uid, now = () => Date.now
         onTrack({
           id: snap.id,
           name: d.name,
-          title: d.title ?? '',
-          speaker: d.speaker ?? '',
           stopped,
+          // 開始前 / 受付中 / 停止中 の3状態。演題の有無では判定できない。
+          live: d.live === true,
           sessionStartedAt: d.sessionStartedAt ?? null,
         });
       }, onError);
@@ -191,16 +191,21 @@ export function createBus(sdk, { db, eventId, trackId, uid, now = () => Date.now
 
     // --- 登壇者の操作 ---------------------------------------------------
 
-    /** 登壇を開始する。trackId は変えないので QR を貼り替えなくていい。 */
-    startSession({ title = '', speaker = '' } = {}) {
+    /**
+     * 登壇を開始する。
+     *
+     * ここが前の登壇との切れ目になる。trackId は変えないので QR を貼り替えなくていい。
+     * 演題は持たない。切れ目を作るのに要らないし、更新し忘れという失敗だけが増える。
+     */
+    startSession() {
       return updateDoc(trackRef(), {
-        sessionStartedAt: serverTimestamp(), stopped: false, title, speaker,
+        sessionStartedAt: serverTimestamp(), stopped: false, live: true,
       });
     },
 
     /** 登壇を終える。次の「開始」まで投稿は拒否される。 */
     endSession() {
-      return updateDoc(trackRef(), { stopped: true, title: '', speaker: '' });
+      return updateDoc(trackRef(), { stopped: true, live: false });
     },
 
     /** 荒らしへの最終手段。これ以降の投稿は Rules が拒否する。 */
