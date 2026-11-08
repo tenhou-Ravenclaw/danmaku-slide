@@ -23,7 +23,6 @@ export function createOverlay({ canvas, hud, video = null, eventId, trackId }) {
   let unwatchTrack = null;
   let unwatchComments = null;
   let bus = null;
-  let sessionKey = null;   // sessionStartedAt が変わったら購読を張り替える
   let raf = 0;
 
   function fit() {
@@ -101,19 +100,6 @@ export function createOverlay({ canvas, hud, video = null, eventId, trackId }) {
     console.error('[overlay]', message);
   }
 
-  function watchSession(startedAt) {
-    const key = startedAt?.toMillis?.() ?? String(startedAt);
-    if (key === sessionKey) return;
-    sessionKey = key;
-
-    unwatchComments?.();
-    flow.resetFlow();
-    unwatchComments = bus.watchComments(startedAt, (c, { isBacklog }) => {
-      if (isBacklog) { flow.markSeen(c.id); return; }
-      flow.add({ id: c.id, text: c.text, width: renderer.measure(c.text) }, performance.now());
-    }, (e) => fail(`購読できない: ${e.code ?? e.message}`));
-  }
-
   async function start() {
     if (!eventId || !trackId) { fail('リンクが正しくない（運営からのリンクを開く）'); return; }
     try {
@@ -125,6 +111,13 @@ export function createOverlay({ canvas, hud, video = null, eventId, trackId }) {
     state.status = '接続';
     paintHud();
 
+    // 開いた時点で溜まっている分は流さない。重ねた直後に過去が一斉に飛ぶと
+    // いま来ているコメントが見えなくなる。
+    unwatchComments = bus.watchComments((c, { isBacklog }) => {
+      if (isBacklog) { flow.markSeen(c.id); return; }
+      flow.add({ id: c.id, text: c.text, width: renderer.measure(c.text) }, performance.now());
+    }, (e) => fail(`購読できない: ${e.code ?? e.message}`));
+
     unwatchTrack = bus.watchTrack((track) => {
       if (!track) { fail(`トラックが無い: ${trackId}`); return; }
       // 登壇者の画面に「重なった」と知らせる。手順1を完了にするため。
@@ -132,7 +125,6 @@ export function createOverlay({ canvas, hud, video = null, eventId, trackId }) {
       state.track = track;
       state.error = null;
       state.status = '接続';
-      if (track.sessionStartedAt) watchSession(track.sessionStartedAt);
       paintHud();
     }, (e) => fail(`トラックを読めない: ${e.code ?? e.message}`));
   }

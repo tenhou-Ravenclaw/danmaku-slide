@@ -175,28 +175,22 @@ async function main() {
   const { user } = await sdk.signInAnonymously(auth);
   const bus = createBus(sdk, { db, eventId, trackId, uid: user.uid });
 
-  let unwatch = null;
-  let sessionKey = null;
   let trackName = null;
   let trackStopped = null;
   let received = 0;
+
+  // 開いた時点で溜まっている分は流さない。一斉に出ると画面が埋まる。
+  bus.watchComments((c, { isBacklog }) => {
+    if (isBacklog) { flow.markSeen(c.id); return; }
+    received++;
+    // 最初の1件が届いたら、出しっぱなしをやめる（投影の邪魔になる）
+    if (received === 1 && !pinned) status(`${trackName} · 受付中`);
+    flow.add({ id: c.id, text: c.text, width: renderer.measure(c.text) }, performance.now());
+  }, (e) => { status(`購読できない: ${e.code ?? e.message}`, false); console.warn(e); });
+
   bus.watchTrack((track) => {
     if (!track) { status(`トラックが見つからない: ${trackId}`, false); return; }
     trackName = track.name; trackStopped = track.stopped;
-    if (!track.sessionStartedAt) return;
-    const key = track.sessionStartedAt.toMillis?.() ?? String(track.sessionStartedAt);
-    if (key === sessionKey) return;
-    sessionKey = key;
-    unwatch?.();
-    flow.resetFlow();
-    unwatch = bus.watchComments(track.sessionStartedAt, (c, { isBacklog }) => {
-      // 溜まっていた分は流さない。一斉に出ると画面が埋まる。
-      if (isBacklog) { flow.markSeen(c.id); return; }
-      received++;
-      // 最初の1件が届いたら、出しっぱなしをやめる（投影の邪魔になる）
-      if (received === 1 && !pinned) status(`${trackName} · 受付中`);
-      flow.add({ id: c.id, text: c.text, width: renderer.measure(c.text) }, performance.now());
-    }, (e) => { status(`購読できない: ${e.code ?? e.message}`, false); console.warn(e); });
     // 最初のコメントが届くまでは残す。繋がっていることを登壇前に確かめられるように。
     status(`${track.name}${track.stopped ? ' · 停止中' : ' · 受付中'}`,
       true, { sticky: received === 0 });

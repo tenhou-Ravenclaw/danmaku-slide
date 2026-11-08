@@ -37,11 +37,11 @@ function parseTrackId(input) {
   try {
     const u = new URL(s);
     const e = u.searchParams.get('e'), t = u.searchParams.get('t');
-    if (valid(e) && valid(t)) return { eventId: e, trackId: t, code: valid(u.searchParams.get('k')) };
+    if (valid(e) && valid(t)) return { eventId: e, trackId: t };
   } catch { /* URL でなければ下の形を見る */ }
   // 「イベントID トラックID」を手で貼られた場合
   const m = s.match(/^([A-Za-z0-9_-]{1,64})[\s/]+([A-Za-z0-9_-]{1,64})$/);
-  if (m) return { eventId: m[1], trackId: m[2], code: null };
+  if (m) return { eventId: m[1], trackId: m[2] };
   return null;
 }
 const valid = (s) => (/^[A-Za-z0-9_-]{1,64}$/.test(String(s ?? '')) ? String(s) : null);

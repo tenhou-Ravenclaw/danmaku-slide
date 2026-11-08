@@ -57,11 +57,11 @@ test('URLを組み立てる', () => {
   assert.equal(eventUrlFor('ev1', 'https://x.test'), 'https://x.test/e/ev1');
 });
 
-test('登壇者のリンクは合言葉を載せる', () => {
-  assert.equal(stageUrlFor('ev1', 'a', 'CODE', 'https://x.test'),
-    'https://x.test/stage.html?e=ev1&t=a&k=CODE');
-  assert.equal(stageUrlFor('ev1', 'a', null, 'https://x.test'),
-    'https://x.test/stage.html?e=ev1&t=a');
+test('登壇者のリンクは合言葉を載せない', () => {
+  // 登壇者に操作権が無いので鍵を渡さない。何も開けない鍵は誤解を生む。
+  const url = stageUrlFor('ev1', 'a', 'https://x.test');
+  assert.equal(url, 'https://x.test/stage.html?e=ev1&t=a');
+  assert.ok(!url.includes('k='), url);
 });
 
 test('URLに入れると危ない文字はエスケープする', () => {

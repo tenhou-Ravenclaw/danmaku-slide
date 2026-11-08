@@ -14,9 +14,7 @@ export function reasonText(kind, { over = 0, waitMs = 0 } = {}) {
     case 'empty':     return 'なにか書いてから送ってください';
     case 'too-long':  return `${MAX_TEXT}文字を超えています。あと${over}文字削ってください`;
     case 'cooldown':  return `送信しました。あと${Math.ceil(waitMs / 1000)}秒で次を送れます`;
-    case 'stopped':   return 'この登壇は終わりました。次の登壇が始まると送れます';
-    // 止めたのは運営。登壇は続いているので「終わった」と言うと嘘になる。
-    case 'paused':    return 'いま運営が投稿を止めています。再開までお待ちください';
+    case 'stopped':   return 'いまこのトラックは投稿を受け付けていません';
     case 'offline':   return 'つながっていません。電波を確かめてもう一度';
     default:          return '送れませんでした。少し待ってもう一度';
   }
@@ -55,9 +53,8 @@ export async function createPoster({ eventId, trackId, now = () => Date.now() } 
       return;
     }
     el('track').textContent = t.name;
-    // 終わったのか、止まっているだけなのかで言い方を変える。
-    // 再スキャンは要らないことを伝える。
-    el('title').textContent = t.live ? '登壇中' : '次の登壇を待っています';
+    // 再スキャンは要らないことを伝える。QR は貼り替わらない。
+    el('title').textContent = t.stopped ? '受付を待っています' : '受付中';
     refresh();
   }, () => { el('track').textContent = '読み取れません'; note(reasonText('denied'), 'bad'); });
 
@@ -75,8 +72,7 @@ export async function createPoster({ eventId, trackId, now = () => Date.now() } 
     el('text').dataset.over = over > 0 ? '1' : '';
 
     const waitMs = bus.cooldownRemaining();
-    // 開始前も送れない。開始まで待ってもらう。
-    const notLive = track === null || track.stopped || !track.live;
+    const notLive = track === null || track.stopped;
     const blocked = len === 0 || over > 0 || waitMs > 0 || notLive;
     el('send').disabled = blocked;
     // 入力そのものが不正なのか、周りの都合で送れないのかを区別して伝える
@@ -85,8 +81,7 @@ export async function createPoster({ eventId, trackId, now = () => Date.now() } 
     el('send').textContent = waitMs > 0 ? `あと${Math.ceil(waitMs / 1000)}秒` : '送信';
 
     if (over > 0) note(reasonText('too-long', { over }), 'bad');
-    else if (track && !track.live) note(reasonText('stopped'), 'wait');
-    else if (track && track.stopped) note(reasonText('paused'), 'wait');
+    else if (track && track.stopped) note(reasonText('stopped'), 'wait');
     else if (waitMs > 0) note(reasonText('cooldown', { waitMs }), 'ok');
   }
 

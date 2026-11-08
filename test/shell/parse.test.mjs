@@ -17,34 +17,35 @@ Module._resolveFilename = origResolve;
 test('運営のリンクから2つのIDを取り出す', () => {
   assert.deepEqual(
     parseTrackId('https://df-hackathon-2026.web.app/stage.html?e=ev123&t=a'),
-    { eventId: 'ev123', trackId: 'a', code: null });
+    { eventId: 'ev123', trackId: 'a' });
 });
 
-test('合言葉つきのリンクも受ける', () => {
+test('古い合言葉つきのリンクも受ける（合言葉は捨てる）', () => {
+  // 以前のリンクが残っていても開けるようにする。鍵はもう使わない。
   assert.deepEqual(
     parseTrackId('https://x.test/stage.html?e=ev123&t=a&k=CODE2345'),
-    { eventId: 'ev123', trackId: 'a', code: 'CODE2345' });
+    { eventId: 'ev123', trackId: 'a' });
 });
 
 test('danmaku:// のリンクから取り出す', () => {
   assert.deepEqual(
     parseTrackId('danmaku://track?e=ev123&t=a&k=CODE2345'),
-    { eventId: 'ev123', trackId: 'a', code: 'CODE2345' });
+    { eventId: 'ev123', trackId: 'a' });
 });
 
 test('投稿URLからも取り出す', () => {
   assert.deepEqual(
     parseTrackId('https://x.test/post.html?e=ev9&t=b'),
-    { eventId: 'ev9', trackId: 'b', code: null });
+    { eventId: 'ev9', trackId: 'b' });
 });
 
 test('手で2つ並べて貼られても受ける', () => {
-  assert.deepEqual(parseTrackId('ev123 a'), { eventId: 'ev123', trackId: 'a', code: null });
-  assert.deepEqual(parseTrackId('ev123/a'), { eventId: 'ev123', trackId: 'a', code: null });
+  assert.deepEqual(parseTrackId('ev123 a'), { eventId: 'ev123', trackId: 'a' });
+  assert.deepEqual(parseTrackId('ev123/a'), { eventId: 'ev123', trackId: 'a' });
 });
 
 test('前後の空白を落とす', () => {
-  assert.deepEqual(parseTrackId('  ev123 a \n'), { eventId: 'ev123', trackId: 'a', code: null });
+  assert.deepEqual(parseTrackId('  ev123 a \n'), { eventId: 'ev123', trackId: 'a' });
 });
 
 test('空なら null', () => {
@@ -78,7 +79,7 @@ test('弾幕ページのURLは透過とHUD非表示を付ける', () => {
 
 test('起動時の引数から danmaku:// を拾う', () => {
   assert.deepEqual(trackFromArgv(['/path/app', 'danmaku://track?e=ev1&t=z']),
-    { eventId: 'ev1', trackId: 'z', code: null });
+    { eventId: 'ev1', trackId: 'z' });
 });
 
 test('引数に danmaku:// が無ければ null', () => {

@@ -95,12 +95,12 @@ await t('投稿が購読側に届く', async () => {
   const staff = evBus('staff7');
   await staff.createEvent('ev-post', { name: 'イベント' });
   await staff.createTrack('ev-post', 'a', { name: 'Track A' });
-  await bus('staff7', 'ev-post', 'a').startSession();   // 開始前は投稿できない
+  await bus('staff7', 'ev-post', 'a').open();   // 受付前は投稿できない
 
   const watcher = bus('staff7', 'ev-post', 'a');
-  const track = await once((cb, err) => watcher.watchTrack(cb, err));
+  await once((cb, err) => watcher.watchTrack(cb, err));
   const seen = [];
-  const un = watcher.watchComments(track.sessionStartedAt, (c, m) => seen.push({ ...c, ...m }));
+  const un = watcher.watchComments((c, m) => seen.push({ ...c, ...m }));
   await sleep(300);
   await bus('po1', 'ev-post', 'a').post('こんにちは');
   await sleep(800);
@@ -115,37 +115,39 @@ await t('最初のスナップショットは backlog として区別される',
   const staff = evBus('staff8');
   await staff.createEvent('ev-backlog', { name: 'イベント' });
   await staff.createTrack('ev-backlog', 'a', { name: 'Track A' });
-  await bus('staff8', 'ev-backlog', 'a').startSession();
+  await bus('staff8', 'ev-backlog', 'a').open();
   const watcher = bus('staff8', 'ev-backlog', 'a');
-  const track = await once((cb, err) => watcher.watchTrack(cb, err));
+  await once((cb, err) => watcher.watchTrack(cb, err));
   await bus('po2', 'ev-backlog', 'a').post('さき');
   await sleep(500);
 
   const seen = [];
-  const un = watcher.watchComments(track.sessionStartedAt, (c, m) => seen.push({ ...c, ...m }));
+  const un = watcher.watchComments((c, m) => seen.push({ ...c, ...m }));
   await sleep(700);
   un();
   assert(seen.length === 1 && seen[0].isBacklog === true, JSON.stringify(seen));
 });
 
-await t('前のセッションのコメントは購読に入らない', async () => {
+await t('溜まっていた分は backlog 扱いで、あとから来た分と区別できる', async () => {
   const staff = evBus('staff9');
   await staff.createEvent('ev-session', { name: 'イベント' });
   await staff.createTrack('ev-session', 'a', { name: 'Track A' });
   const sp = bus('staff9', 'ev-session', 'a');
-  await sp.startSession();
-  await bus('po3', 'ev-session', 'a').post('前の登壇のコメント');
+  await sp.open();
+  await bus('po3', 'ev-session', 'a').post('さっきの分');
   await sleep(400);
-
-  await sp.startSession();
-  await sleep(400);
-  const startedAt = (await sp.getTrack()).data().sessionStartedAt;
 
   const seen = [];
-  const un = sp.watchComments(startedAt, (c) => seen.push(c.text));
+  const un = sp.watchComments((c, m) => seen.push({ text: c.text, ...m }));
+  await sleep(500);
+  await bus('po3b', 'ev-session', 'a').post('いまの分');
   await sleep(700);
   un();
-  assert(seen.length === 0, `残っている: ${seen}`);
+
+  const backlog = seen.filter((c) => c.isBacklog).map((c) => c.text);
+  const fresh = seen.filter((c) => !c.isBacklog).map((c) => c.text);
+  assert(backlog.join(',') === 'さっきの分', `backlog=${backlog}`);
+  assert(fresh.join(',') === 'いまの分', `fresh=${fresh}`);
 });
 
 // --- 入力の検証 ---------------------------------------------------------
@@ -187,81 +189,71 @@ await t('サーバに弾かれたら手元の時刻は進めない', async () =>
   assert(po.cooldownRemaining() === 0, `残り=${po.cooldownRemaining()}`);
 });
 
-// --- 登壇の開始と終了 ---------------------------------------------------
-await t('登壇を終えると投稿が止まる（登壇者の操作）', async () => {
+// --- 受付の開け閉め -----------------------------------------------------
+await t('作ったばかりのトラックには投稿できない', async () => {
   const staff = evBus('staffA');
-  await staff.createEvent('ev-end', { name: 'イベント' });
-  await staff.createTrack('ev-end', 'a', { name: 'Track A' });
-  const sp = bus('staffA', 'ev-end', 'a');
-  await sp.startSession();
-  const po = bus('poA', 'ev-end', 'a');
+  await staff.createEvent('ev-fresh', { name: 'イベント' });
+  await staff.createTrack('ev-fresh', 'a', { name: 'Track A' });
+  const po = bus('poA', 'ev-fresh', 'a');
   const un = po.watchTrack(() => {});
-  await sleep(300);
-  await sp.endSession();
-  await sleep(500);
+  await sleep(400);
   un();
-  // 終えても stopped は立たない。止めるのは運営の操作。
-  assert(po.isStopped === false, 'stopped が立っている');
-  assert(po.isLive === false, '登壇中のままになっている');
-  try { await po.post('おそい'); throw new Error('通った'); }
+  assert(po.isStopped === true, '受付前になっていない');
+  try { await po.post('まだ'); throw new Error('通った'); }
   catch (e) { assert(e.kind === 'stopped', `kind=${e.kind}`); }
 });
 
-await t('運営は投稿を止めたり戻したりできる', async () => {
+await t('運営が開けると送れて、止めると送れなくなる', async () => {
   const staff = evBus('staffStop');
   await staff.createEvent('ev-stop', { name: 'イベント' });
   await staff.createTrack('ev-stop', 'a', { name: 'Track A' });
   const sp = bus('staffStop', 'ev-stop', 'a');
-  await sp.startSession();
-  await sp.stop();
+  await sp.open();
+  await sleep(300);
+  await bus('poStop0', 'ev-stop', 'a').post('開いている');
+
+  await sp.close();
   await sleep(400);
   let denied = false;
   try { await bus('poStop', 'ev-stop', 'a').post('止まっている'); }
   catch { denied = true; }
   assert(denied, '止めたのに通った');
-  await sp.resume();
+
+  await sp.open();
   await sleep(400);
   await bus('poStop2', 'ev-stop', 'a').post('戻った');
 });
 
-await t('次の登壇が始まると再スキャンなしで送れる', async () => {
+await t('止めて開け直しても観客は再スキャンしなくていい', async () => {
   const staff = evBus('staffB');
   await staff.createEvent('ev-next', { name: 'イベント' });
   await staff.createTrack('ev-next', 'a', { name: 'Track A' });
   const sp = bus('staffB', 'ev-next', 'a');
-  await sp.startSession();
+  await sp.open();
   const po = bus('poB', 'ev-next', 'a');
   const un = po.watchTrack(() => {});
   await sleep(300);
-  await sp.endSession();   await sleep(400);
-  await sp.startSession(); await sleep(500);
+  await sp.close(); await sleep(400);
+  await sp.open();  await sleep(500);
   un();
   await po.post('おかえり');
 });
 
-// --- 引き継ぎ -----------------------------------------------------------
-await t('リンクの合言葉で登壇者になれる', async () => {
+// --- 登壇者の立場 -------------------------------------------------------
+await t('登壇者はトラックを読めるが書けない', async () => {
   const staff = evBus('staffC');
   await staff.createEvent('ev-ho', { name: 'イベント' });
   await staff.createTrack('ev-ho', 'a', { name: 'Track A' });
-  await staff.setTrackHandoff('ev-ho', 'a', 'CODE-42');
 
+  // 登壇者に渡すのは画面へのリンクだけ。合言葉も操作権も持たせない。
   const speaker = bus('spC', 'ev-ho', 'a');
-  await speaker.claim('CODE-42');
-  await speaker.startSession();
-  const d = (await speaker.getTrack()).data();
-  assert(d.live === true && d.stopped === false, `開始できていない: ${JSON.stringify(d)}`);
-});
+  const got = await once((cb, err) => speaker.watchTrack(cb, err));
+  assert(got.name === 'Track A', `読めていない: ${JSON.stringify(got)}`);
 
-await t('誤った合言葉では登壇者になれない', async () => {
-  const staff = evBus('staffD');
-  await staff.createEvent('ev-ho2', { name: 'イベント' });
-  await staff.createTrack('ev-ho2', 'a', { name: 'Track A' });
-  await staff.setTrackHandoff('ev-ho2', 'a', 'RIGHT');
   let denied = false;
-  try { await bus('spD', 'ev-ho2', 'a').claim('WRONG'); }
+  try { await speaker.open(); }
   catch (e) { denied = e.code === 'permission-denied'; }
-  assert(denied, '通ってしまった');
+  assert(denied, '登壇者が受付を開けられてしまった');
 });
 
 await env.cleanup();

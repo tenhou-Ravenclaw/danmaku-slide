@@ -30,9 +30,8 @@ export function slugFromName(name) {
 export const postUrlFor = (eventId, trackId, origin = location.origin) =>
   `${origin}/post.html?e=${encodeURIComponent(eventId)}&t=${encodeURIComponent(trackId)}`;
 
-export const stageUrlFor = (eventId, trackId, code, origin = location.origin) =>
-  `${origin}/stage.html?e=${encodeURIComponent(eventId)}&t=${encodeURIComponent(trackId)}`
-  + (code ? `&k=${encodeURIComponent(code)}` : '');
+export const stageUrlFor = (eventId, trackId, origin = location.origin) =>
+  `${origin}/stage.html?e=${encodeURIComponent(eventId)}&t=${encodeURIComponent(trackId)}`;
 
 export const overlayUrlFor = (eventId, trackId, origin = location.origin) =>
   `${origin}/overlay.html?e=${encodeURIComponent(eventId)}&t=${encodeURIComponent(trackId)}`;

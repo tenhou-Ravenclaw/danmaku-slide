@@ -1,21 +1,21 @@
 // 登壇者の画面。登壇中に見るので、焦って探す要素が無い状態にする。
 //
-// やることは3つだけ。重ねる、開始する、止める。
-// 「投稿を止める」は荒らしへの最終手段なので、常に目に入る位置に置いたまま動かさない。
+// やることは1つだけ。スライドに重ねる。
+// 登壇の開始・終了も投稿の開け閉めもここには無い。前者はこの道具の仕事ではなく、
+// 後者は運営の判断なので、壇上で押せる場所に置かない。
 import { start } from './app.mjs';
 import { createBus } from './bus.mjs';
-import { stageUrlFor, overlayUrlFor, ago, withEnv } from './ids.mjs';
+import { overlayUrlFor, ago, withEnv } from './ids.mjs';
 
 /** 運営のリンクをアプリに渡す形。アプリが入っていなければ何も起きない。 */
-export function appUrlFor(eventId, trackId, code) {
+export function appUrlFor(eventId, trackId) {
   const u = new URL('danmaku://track');
   u.searchParams.set('e', eventId);
   u.searchParams.set('t', trackId);
-  if (code) u.searchParams.set('k', code);
   return u.toString();
 }
 
-export async function createStage({ eventId, trackId, code, now = () => Date.now() } = {}) {
+export async function createStage({ eventId, trackId, now = () => Date.now() } = {}) {
   const el = (id) => document.getElementById(id);
   const state = el('state');
 
@@ -36,7 +36,6 @@ export async function createStage({ eventId, trackId, code, now = () => Date.now
     clearTimeout(errorTimer);
     errorTimer = setTimeout(() => { stickyError = null; render(); }, 6000);
   };
-  const clearError = () => { stickyError = null; clearTimeout(errorTimer); };
 
   if (!eventId || !trackId) {
     fail('リンクが正しくありません（運営からのリンクを開く）');
@@ -46,20 +45,13 @@ export async function createStage({ eventId, trackId, code, now = () => Date.now
   const { uid, db, sdk } = await start();
   const bus = createBus(sdk, { db, eventId, trackId, uid, now });
 
-  // 運営のリンクに合言葉が付いていれば、このトラックの登壇者として登録する。
-  // 失敗しても読むことはできるので、黙って続ける。
-  if (code) {
-    try { await bus.claim(code); }
-    catch { /* すでに登録済みか、合言葉が古い */ }
-  }
-
   let track = null;
   let received = 0;
   let lastAt = null;
   let appConnected = false;
   const seen = new Set();
 
-  el('openApp').href = appUrlFor(eventId, trackId, code);
+  el('openApp').href = appUrlFor(eventId, trackId);
   el('browserWay').href = withEnv(`${overlayUrlFor(eventId, trackId)}&capture=1`);
 
   // --- 画面の出し分け ---------------------------------------------------
@@ -69,30 +61,14 @@ export async function createStage({ eventId, trackId, code, now = () => Date.now
     el('trackName').textContent = track.name;
     el('eventName').textContent = eventNameText;
 
-    // 演題の有無では判定しない。運営が先に入れておくので。
-    const started = track.live && !track.stopped;
-    el('beforeStart').classList.toggle('hidden', started);
-    el('afterStart').classList.toggle('hidden', !started);
-    el('step2').dataset.state = started ? 'done' : (appConnected ? 'now' : '');
     el('step1').dataset.state = appConnected ? 'done' : 'now';
     el('appOk').classList.toggle('hidden', !appConnected);
-
-    if (started) el('nowMeta').textContent = startedAtText() || '受付中';
 
     // 止めたのは運営。登壇者には何が起きているかだけ伝える。
     el('stoppedNote').classList.toggle('hidden', !track.stopped);
 
-    // 三つの状態をそのまま出す。「終わった」と「止められた」は別のこと。
     if (track.stopped) say('停止中', '運営が投稿を止めています', 'stopped');
-    else if (!track.live) say('開始前', '「はじめる」を押すと投稿を受け付けます', 'idle');
     else say('受付中', lastAt ? `最後のコメント ${ago(lastAt, now())}` : 'まだ届いていません', 'live');
-  }
-
-  function startedAtText() {
-    const ms = track?.sessionStartedAt?.toMillis?.();
-    if (!ms) return '';
-    const d = new Date(ms);
-    return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')} 開始`;
   }
 
   let eventNameText = '';
@@ -105,35 +81,17 @@ export async function createStage({ eventId, trackId, code, now = () => Date.now
   })();
 
   // --- 購読 -------------------------------------------------------------
-  let unwatchComments = null;
-  let sessionKey = null;
-
   bus.watchTrack((t) => {
     track = t;
     if (!t) { fail(`トラックが見つかりません: ${trackId}`); return; }
-    if (t.sessionStartedAt) watchSession(t.sessionStartedAt);
     render();
   }, (e) => fail(`読めない: ${e.code ?? e.message}`));
 
-  function watchSession(startedAt) {
-    const key = startedAt?.toMillis?.() ?? String(startedAt);
-    if (key === sessionKey) return;
-    sessionKey = key;
-    unwatchComments?.();
-    // 登壇が切り替わったら手元の一覧も切り替える
-    seen.clear();
-    received = 0;
-    lastAt = null;
-    el('feed').replaceChildren();
-    el('count').textContent = '0';
-    el('feedEmpty').classList.remove('hidden');
-
-    unwatchComments = bus.watchComments(startedAt, (c) => {
-      if (seen.has(c.id)) return;
-      seen.add(c.id);
-      addToFeed(c);
-    }, (e) => fail(`購読できない: ${e.code ?? e.message}`));
-  }
+  const unwatchComments = bus.watchComments((c) => {
+    if (seen.has(c.id)) return;
+    seen.add(c.id);
+    addToFeed(c);
+  }, (e) => fail(`購読できない: ${e.code ?? e.message}`));
 
   function addToFeed(c) {
     const ms = c.createdAt?.toMillis?.() ?? now();
@@ -168,23 +126,6 @@ export async function createStage({ eventId, trackId, code, now = () => Date.now
     }
   }, 1000);
 
-  // --- 操作 -------------------------------------------------------------
-  el('startBtn').addEventListener('click', async () => {
-    el('startBtn').disabled = true;
-    try {
-      await bus.startSession();
-      clearError();
-    } catch (e) { fail(`開始できない: ${e.code ?? e.message}`); }
-    finally { el('startBtn').disabled = false; }
-  });
-
-  el('endBtn').addEventListener('click', async () => {
-    el('endBtn').disabled = true;
-    try { await bus.endSession(); clearError(); }
-    catch (e) { fail(`終えられない: ${e.code ?? e.message}`); }
-    finally { el('endBtn').disabled = false; }
-  });
-
   // アプリが開いたかどうかは直接は分からない。
   // 弾幕ページを開いたという合図を受け取って、手順1を完了にする。
   addEventListener('message', (e) => {
@@ -197,6 +138,6 @@ export async function createStage({ eventId, trackId, code, now = () => Date.now
     bus, eventId, trackId,
     get received() { return received; },
     get track() { return track; },
-    stop() { clearInterval(ticker); unwatchComments?.(); },
+    stop() { clearInterval(ticker); unwatchComments(); },
   };
 }

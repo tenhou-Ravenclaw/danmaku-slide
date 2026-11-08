@@ -41,12 +41,20 @@ const invariants = [
   ['ownerUid の書き換え禁止',             'request.resource.data.ownerUid == resource.data.ownerUid'],
   ['createdAt の書き換え禁止',            'request.resource.data.createdAt == resource.data.createdAt'],
   ['更新できるフィールドの限定',          'affectedKeys()'],
-  ['演題を持たない',                      "hasOnly(['sessionStartedAt','stopped','live'])"],
-  ['停止は運営だけが触れる',              "hasOnly(['sessionStartedAt','live'])"],
-  ['登壇中でなければ受け付けない',        'get(trackPath()).data.live == true'],
+  ['トラックで動くのは受付の可否だけ',    "hasOnly(['stopped'])"],
+  ['受付の開け閉めは運営だけ',            'allow update: if isEventStaff()'],
+  ['トラックは受付前で作られる',          'request.resource.data.stopped == true'],
+  ['受付中でなければ受け付けない',        'get(trackPath()).data.stopped == false'],
+  // 登壇者に書き込む先を残さない。合言葉が何も開けない状態で残るのを防ぐ。
 ];
 for (const [label, needle] of invariants) {
+  if (needle === null) continue;
   check(`${label}（${needle}）`, rules.includes(needle));
+}
+
+// 消したものが戻ってきていないか。登壇者に書き込ませる口は持たない。
+for (const gone of ['isTrackSpeaker', "'live'", 'sessionStartedAt', 'tracks/$(trackId)/operators']) {
+  check(`${gone} が残っていない`, !rules.includes(gone));
 }
 
 // --- 生成物・秘密情報が git に入っていないか ----------------------------

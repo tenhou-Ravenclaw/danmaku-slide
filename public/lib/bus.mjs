@@ -66,17 +66,16 @@ export function createEventBus(sdk, { db, uid }) {
       return getDocs(query(collection(db, 'events', eventId, 'tracks'), orderBy('name'), limit(PAGE)));
     },
 
-    /** トラックを足す。作れるのはイベントの owner だけ（Rules で縛っている）。 */
+    /**
+     * トラックを足す。作れるのはイベントの owner だけ（Rules で縛っている）。
+     *
+     * 受付前（stopped）で作る。前日に用意しておいた QR が
+     * その場から生きてしまうのは困る。開けるのは当日、運営が決める。
+     */
     createTrack(eventId, trackId, { name }) {
       return setDoc(doc(db, 'events', eventId, 'tracks', trackId), {
-        name, stopped: false, live: false,
-        sessionStartedAt: serverTimestamp(), createdAt: serverTimestamp(),
+        name, stopped: true, createdAt: serverTimestamp(),
       });
-    },
-
-    /** 登壇者に渡すリンクの合言葉。置いた本人も読めない。 */
-    setTrackHandoff(eventId, trackId, code) {
-      return setDoc(doc(db, 'events', eventId, 'tracks', trackId, 'private', 'handoff'), { code });
     },
 
     setEventHandoff(eventId, code) {
@@ -90,7 +89,7 @@ export function createEventBus(sdk, { db, uid }) {
 /** トラック単位の操作。登壇者・観客・弾幕ページが使う。 */
 export function createBus(sdk, { db, eventId, trackId, uid, now = () => Date.now() }) {
   const {
-    collection, doc, query, where, orderBy, limit,
+    collection, doc, query, orderBy, limit,
     onSnapshot, getDoc, setDoc, updateDoc, serverTimestamp, writeBatch,
   } = sdk;
 
@@ -101,30 +100,21 @@ export function createBus(sdk, { db, eventId, trackId, uid, now = () => Date.now
   // サーバの返事だけでは UI が理由を出せない。手元でも持っておく。
   let lastPostAt = -Infinity;
   let stopped = false;
-  let live = false;
-  // 一度も見ていない状態を「開始前」と決めつけない。
-  // 購読していない使い方もあるので、見るまではサーバの判断に任せる。
+  // 一度も見ていない状態を「止まっている」と決めつけない。
+  // 購読しない使い方もあるので、見るまではサーバの判断に任せる。
   let observed = false;
 
   return {
     eventId, trackId,
 
-    /** トラックの状態を購読する。stopped と sessionStartedAt の変化を拾う。 */
+    /** トラックの状態を購読する。見るのは受付の可否だけ。 */
     watchTrack(onTrack, onError) {
       return onSnapshot(trackRef(), (snap) => {
         if (!snap.exists()) { onTrack(null); return; }
         const d = snap.data();
         stopped = d.stopped === true;
-        live = d.live === true;
         observed = true;
-        onTrack({
-          id: snap.id,
-          name: d.name,
-          stopped,
-          // 開始前 / 受付中 / 停止中 の3状態。演題の有無では判定できない。
-          live: d.live === true,
-          sessionStartedAt: d.sessionStartedAt ?? null,
-        });
+        onTrack({ id: snap.id, name: d.name, stopped });
       }, onError);
     },
 
@@ -138,13 +128,8 @@ export function createBus(sdk, { db, eventId, trackId, uid, now = () => Date.now
      * createdAt が null のものは飛ばす。サーバ時刻が確定していない自分の書き込みで、
      * 確定後に改めて届く。
      */
-    watchComments(sessionStartedAt, onComment, onError) {
-      const q = query(
-        commentsRef(),
-        where('createdAt', '>=', sessionStartedAt),
-        orderBy('createdAt', 'desc'),
-        limit(PAGE),
-      );
+    watchComments(onComment, onError) {
+      const q = query(commentsRef(), orderBy('createdAt', 'desc'), limit(PAGE));
       let first = true;
       return onSnapshot(q, (snap) => {
         const added = snap.docChanges()
@@ -172,10 +157,7 @@ export function createBus(sdk, { db, eventId, trackId, uid, now = () => Date.now
       const t = String(text ?? '').trim();
       if (t.length === 0) throw new PostError('empty');
       if (t.length > MAX_TEXT) throw new PostError('too-long');
-      // 終了（live=false）と停止（stopped=true）はどちらでも送れないが、
-      // 観客への言い方が変わる。終わったのか、止まっているだけなのか。
-      if (observed && !live) throw new PostError('stopped');
-      if (observed && stopped) throw new PostError('paused');
+      if (observed && stopped) throw new PostError('stopped');
       if (this.cooldownRemaining() > 0) throw new PostError('cooldown');
 
       const b = writeBatch(db);
@@ -197,42 +179,18 @@ export function createBus(sdk, { db, eventId, trackId, uid, now = () => Date.now
     },
 
     get isStopped() { return stopped; },
-    get isLive() { return live && !stopped; },
     get isObserved() { return observed; },
 
-    // --- 登壇者の操作 ---------------------------------------------------
+    // --- 運営の操作 -----------------------------------------------------
 
     /**
-     * 登壇を開始する。
+     * 受付を開ける／止める。運営だけが触れる（Rules で縛っている）。
      *
-     * ここが前の登壇との切れ目になる。trackId は変えないので QR を貼り替えなくていい。
-     * 演題は持たない。切れ目を作るのに要らないし、更新し忘れという失敗だけが増える。
+     * 登壇の開始と終了はこの道具の仕事ではない。進行はイベントのタイムテーブルが
+     * 持っているもので、ここに置くと二重管理になるし、押し忘れだけが増える。
      */
-    startSession() {
-      return updateDoc(trackRef(), {
-        sessionStartedAt: serverTimestamp(), stopped: false, live: true,
-      });
-    },
-
-    /**
-     * 登壇を終える。次の「開始」まで投稿は拒否される。
-     * stopped は触らない。あれは運営の操作で、登壇者は戻せない。
-     */
-    endSession() {
-      return updateDoc(trackRef(), { live: false });
-    },
-
-    /**
-     * 荒らしへの最終手段。運営だけが触れる（Rules で縛っている）。
-     * 運営が止めたものを登壇者が戻せてはいけない。
-     */
-    stop()   { return updateDoc(trackRef(), { stopped: true }); },
-    resume() { return updateDoc(trackRef(), { stopped: false }); },
-
-    /** 渡されたリンクの合言葉を示して、このトラックの登壇者になる。 */
-    claim(code) {
-      return setDoc(doc(db, 'events', eventId, 'tracks', trackId, 'operators', uid), { code });
-    },
+    open()  { return updateDoc(trackRef(), { stopped: false }); },
+    close() { return updateDoc(trackRef(), { stopped: true }); },
 
     getTrack() { return getDoc(trackRef()); },
   };

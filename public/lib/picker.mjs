@@ -62,7 +62,7 @@ export async function createPicker({ eventId } = {}) {
       const sub = document.createElement('div');
       sub.className = 's';
       // コメントは外から来る。textContent で入れる。
-      sub.textContent = (t.live && !t.stopped) ? '登壇中' : '次の登壇を待っています';
+      sub.textContent = t.stopped ? '受付を待っています' : '受付中';
       box.append(name, sub);
       const chev = document.createElement('span');
       chev.className = 'chev';

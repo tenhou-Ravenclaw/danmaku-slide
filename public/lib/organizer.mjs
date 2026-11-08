@@ -53,12 +53,11 @@ export async function createOrganizer({ eventId, random = () => Math.random() } 
           const snap = await events.getTracksOnce(ev.id);
           const tracks = snap.docs.map((d) => d.data());
           return { ...ev, trackCount: tracks.length,
-            liveCount: tracks.filter((t) => t.live === true && t.stopped !== true).length,
-            stoppedCount: tracks.filter((t) => t.stopped === true).length };
+            openCount: tracks.filter((t) => t.stopped !== true).length };
         } catch (e) {
           // 握りつぶすと「—」が出るだけで原因が見えない
           fail(`トラック数を数えられない: ${e.code ?? e.message}`);
-          return { ...ev, trackCount: null, liveCount: 0, stoppedCount: 0 };
+          return { ...ev, trackCount: null, openCount: 0 };
         }
       }));
       paintList(withCounts);
@@ -113,12 +112,10 @@ export async function createOrganizer({ eventId, random = () => Math.random() } 
       const st = cell(tr);
       const pill = document.createElement('span');
       if (!ev.trackCount) { pill.className = 'pill mute'; pill.textContent = '準備中'; }
-      else if (ev.liveCount > 0) {
+      else if (ev.openCount > 0) {
         pill.className = 'pill good';
-        pill.textContent = `受付中 ${ev.liveCount} / ${ev.trackCount}`;
-      } else if (ev.stoppedCount === ev.trackCount) {
-        pill.className = 'pill warn'; pill.textContent = '全停止中';
-      } else { pill.className = 'pill mute'; pill.textContent = '開始前'; }
+        pill.textContent = `受付中 ${ev.openCount} / ${ev.trackCount}`;
+      } else { pill.className = 'pill mute'; pill.textContent = '受付前'; }
       st.append(pill);
 
       const chev = cell(tr); chev.className = 'chev'; chev.textContent = '›';
@@ -202,12 +199,26 @@ export async function createOrganizer({ eventId, random = () => Math.random() } 
     // Enter では足さない。打ち終わりに Enter を押す癖で増えてしまう。
     el('addTrack').addEventListener('click', () => addTrack(id, tracks));
 
+    // まとめて開ける／止める。当日の朝に1トラックずつ押させない。
+    const allTracks = (fn) => Promise.all(tracks.map((t) =>
+      fn(createBus(sdk, { db, eventId: id, trackId: t.id, uid }))));
+
+    el('openAll').addEventListener('click', async () => {
+      if (!tracks.length) { fail('トラックがありません'); return; }
+      el('openAll').disabled = true;
+      try {
+        await allTracks((b) => b.open());
+        say('全トラックで投稿を受け付けます', 'ok');
+      } catch (e) {
+        fail(`開けられない: ${e.code ?? e.message}`);
+      } finally { el('openAll').disabled = false; }
+    });
+
     el('stopAll').addEventListener('click', async () => {
       if (!tracks.length) { fail('トラックがありません'); return; }
       el('stopAll').disabled = true;
       try {
-        await Promise.all(tracks.map((t) =>
-          createBus(sdk, { db, eventId: id, trackId: t.id, uid }).stop()));
+        await allTracks((b) => b.close());
         say('全トラックの投稿を止めました', 'ok');
       } catch (e) {
         fail(`止められない: ${e.code ?? e.message}`);
@@ -239,11 +250,10 @@ export async function createOrganizer({ eventId, random = () => Math.random() } 
       name.style.fontWeight = '700';
       name.textContent = t.name;
 
-      // 開始前 / 受付中 / 停止中 の3状態。演題の有無では判定しない。
+      // 受付中か、そうでないか。状態はこの2つだけ。
       const st = cell(tr);
       const pill = document.createElement('span');
       if (t.stopped) { pill.className = 'pill bad'; pill.textContent = '停止中'; }
-      else if (!t.live) { pill.className = 'pill mute'; pill.textContent = '開始前'; }
       else { pill.className = 'pill good'; pill.textContent = '受付中'; }
       st.append(pill);
 
@@ -252,15 +262,13 @@ export async function createOrganizer({ eventId, random = () => Math.random() } 
       count.textContent = '—';
       countComments(eventId, t, count);
 
-      // 渡す相手ごとに分ける。取り違えると、観客に操作用のリンクを配ることになる。
+      // 渡す相手ごとに分ける。取り違えると、観客に登壇者用の画面を配ることになる。
       const toSpeaker = cell(tr);
       toSpeaker.className = 'link';
       toSpeaker.append(button('登壇用リンクをコピー', 'btn toSpeaker', async () => {
-        const code = newHandoffCode(random);
         try {
-          await events.setTrackHandoff(eventId, t.id, code);
-          await copy(stageUrlFor(eventId, t.id, code));
-          say('登壇用リンクをコピーしました。渡した人だけが操作できます', 'ok');
+          await copy(stageUrlFor(eventId, t.id));
+          say('登壇用リンクをコピーしました', 'ok');
         } catch (e) { fail(`リンクを作れない: ${e.code ?? e.message}`); }
       }));
 
@@ -280,17 +288,17 @@ export async function createOrganizer({ eventId, random = () => Math.random() } 
         }));
       toAudience.append(audRow);
 
-      // 停止は運営だけの操作。荒らしへの対処なので、ここに置く。
+      // 受付の開け閉めは運営だけの操作。登壇者には押す場所が無い。
       const guard = cell(tr);
       guard.className = 'link';
       const trackBus = () => createBus(sdk, { db, eventId, trackId: t.id, uid });
       guard.append(t.stopped
-        ? button('投稿を再開する', 'btn resume', async () => {
-            try { await trackBus().resume(); say(`${t.name} の投稿を再開しました`, 'ok'); }
-            catch (e) { fail(`再開できない: ${e.code ?? e.message}`); }
+        ? button('投稿を受け付ける', 'btn resume', async () => {
+            try { await trackBus().open(); say(`${t.name} で投稿を受け付けます`, 'ok'); }
+            catch (e) { fail(`開けられない: ${e.code ?? e.message}`); }
           })
         : button('投稿を止める', 'btn stop', async () => {
-            try { await trackBus().stop(); say(`${t.name} の投稿を止めました`, 'ok'); }
+            try { await trackBus().close(); say(`${t.name} の投稿を止めました`, 'ok'); }
             catch (e) { fail(`止められない: ${e.code ?? e.message}`); }
           }));
 
@@ -309,15 +317,13 @@ export async function createOrganizer({ eventId, random = () => Math.random() } 
 
   /**
    * いま届いている件数。
-   * 一覧のために全件読むのは重いので、セッション開始以降の上限50件だけ数える。
+   * 一覧のために全件読むのは重いので、新しい順に上限50件だけ数える。
    */
   async function countComments(eventId, track, cellEl) {
-    if (!track.sessionStartedAt) { cellEl.textContent = '0'; return; }
     try {
-      const { collection, query, where, orderBy, limit, getDocs } = sdk;
+      const { collection, query, orderBy, limit, getDocs } = sdk;
       const snap = await getDocs(query(
         collection(db, 'events', eventId, 'tracks', track.id, 'comments'),
-        where('createdAt', '>=', track.sessionStartedAt),
         orderBy('createdAt', 'desc'), limit(50)));
       cellEl.textContent = snap.size >= 50 ? '50+' : String(snap.size);
     } catch (e) {

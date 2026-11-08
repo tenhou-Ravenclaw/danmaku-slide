@@ -7,7 +7,8 @@
 
 - **投稿面は認証で守れない。** ログインを挟むと「無駄なクリックをなくす」という要件が壊れる。
   だから防御は認証ではなく **形の制約** でやる。
-- **制御面は認証で守れる。** 登壇者とスタッフには準備時間があるので一手間かけられる。
+- **制御面は認証で守れる。** 運営には準備時間があるので一手間かけられる。
+  トラックを触れるのは Google でサインインした運営だけで、匿名では一切書けない。
 
 観客にも `signInAnonymously` を入れている。画面もクリックも増えないが、UID が手に入るので
 「UID ごとのレート制限」が Rules だけで書けるようになる。
@@ -15,23 +16,30 @@
 ## データモデル
 
 ```
-tracks/{trackId}        { name, title, speaker, sessionStartedAt, stopped, ownerUid, createdAt }
-  /comments/{id}        { text, createdAt }      追記専用。update / delete は全拒否
-  /private/handoff      { code }                 誰も読めない。Rules の get() だけが参照する
-  /operators/{uid}      { code }                 引き継ぎコードで登録された運用者
-  /posters/{uid}        { lastPostAt }           レート制限の土台。読み取り全拒否
+events/{eventId}          { name, heldOn, ownerUid, createdAt }
+  /private/handoff        { code }               誰も読めない。Rules の get() だけが参照する
+  /operators/{uid}        { code }               引き継ぎコードで登録された運営
+  /tracks/{trackId}       { name, stopped, createdAt }
+    /comments/{id}        { text, createdAt }    追記専用。update / delete は全拒否
+    /posters/{uid}        { lastPostAt }         レート制限の土台。読み取り全拒否
 ```
 
-`trackId` は長寿命（会場の「Track A」そのもの。QR が指すのはこれ）。
-`sessionStartedAt` は短寿命（登壇者1人ぶんの区切り）。
-この2つを分けているので、QR を貼り替えずに登壇者を交代できる。
+`trackId` は長寿命（会場の「Track A」そのもの。QR が指すのはこれ）。QR は1日貼り替えない。
+
+トラックで動くのは `stopped` ひとつだけ。**登壇の開始・終了という状態を持たない。**
+進行管理はこの道具の責任ではないので、持たせると二重管理になり、
+押し忘れという失敗だけが増える。状態をひとつに絞ったぶん、
+「誰が何を書けるか」も一行で言い切れる（運営だけが `stopped` を書ける）。
+
+トラックは受付前（`stopped: true`）で作られる。前日に用意した QR が
+その場から生きてしまうのを避けるため。開けるのは当日、運営が決める。
 
 ## 脅威と対策
 
 | | 脅威 | 対策 |
 |---|---|---|
 | T1 | 公開 config を見て他トラックを覗く・荒らす | 読み・書き・購読すべて認証必須 |
-| T2 | `stopped` や `sessionStartedAt` の改変で弾幕を殺す | `ownerUid` に焼き、`ownerUid` と `createdAt` は誰も書き換えられない。触れるのは運用4フィールドのみ |
+| T2 | `stopped` の改変で投稿を殺す・勝手に開ける | 書けるのはイベントの owner と登録済みの運営だけ。`name` / `createdAt` は誰も書き換えられず、`stopped` 以外のキーに触れた更新はキーの集合で落ちる |
 | T3 | 投稿の改変・削除 | `update` / `delete` は owner でも全拒否 |
 | T4 | 無限書き込みで Firestore 課金を燃やす | `getAfter()` で同一バッチの `posters` 更新を強制し、`posters` 側で2秒のクールダウン。`request.query.limit` も上限で縛る |
 | T5 | 長文・制御文字で描画を壊す | フィールド whitelist、1〜60文字、`createdAt == request.time` |
@@ -53,15 +61,18 @@ tracks/{trackId}        { name, title, speaker, sessionStartedAt, stopped, owner
 コストは **1投稿あたり write 2 / read 2**（`posters` の更新と Rules の `get` / `getAfter`）。
 1イベント1000投稿で 2000/2000。無料枠は1日 20,000 write / 50,000 read なので桁が違う。
 
-## 引き継ぎ（スタッフ → 登壇者）
+## 引き継ぎ（owner → 手伝う運営）
 
-`tracks/{id}/private/handoff` に引き継ぎコードを置く。**owner 自身も読めない**
-（Rules の `get()` だけが見る）。登壇者はコードを提示して `operators/{uid}` に自分を登録し、
-以降は owner と同じ運用操作ができる。`ownerUid` は奪えないまま。
+`events/{id}/private/handoff` に引き継ぎコードを置く。**owner 自身も読めない**
+（Rules の `get()` だけが見る）。手伝う人はコードを提示して `operators/{uid}` に自分を
+登録し、以降はトラックの受付を開け閉めできる。`ownerUid` は奪えないまま。
 
-これが成立するので、**スタッフが事前にトラックを作り、QR を印刷物に載せる**運用が取れる。
+**登壇者には合言葉を渡さない。** 渡すのは画面へのリンクだけで、
+トラックに書き込む先がひとつも無い。何も開けない鍵を配ると、
+持っている側が権限があると思い込むので、仕組みごと持たない。
+
+これが成立するので、**運営が事前にトラックを作り、QR を印刷物に載せる**運用が取れる。
 スクリーンに QR を出して登壇を邪魔する必要がない。
-登壇者スタートは「自分で createTrack を呼ぶだけ」の特殊ケースで、Rules は完全に共通。
 
 ## 残っている穴
 
@@ -73,34 +84,36 @@ Firestore は App Check 強制に対応している。
 
 1. Rules — 攻撃に技術的ハードルを作る
 2. 予算アラート — 実費の歯止め
-3. 登壇者の `stopped = true` ワンクリック封鎖 — 運用上の最終手段
+3. 運営の `stopped = true` ワンクリック封鎖 — 運用上の最終手段
 4. App Check — 時間が確保できたら
 
-3 が効くのは、攻撃面が**登壇中の数分間に限られる**から。`sessionStartedAt` の時間窓と
-`stopped` で、守る対象がそもそも小さい。
+3 が効くのは、受付が開いている時間が**イベントの開催中に限られる**から。
+作った時点では閉じているので、攻撃面は運営が開けている間だけになる。
 
 ### 停止が効くことの実装上の注意
 
 Firestore は書き込みをまずローカルに適用し、サーバに拒否されると巻き戻す。
 巻き戻しのスナップショットが購読から届くので、素直に書くと**エラー表示が通常表示で
-上書きされ、押しても何も起きなかったように見える**。登壇者コンソールでは、エラーを
+上書きされ、押しても何も起きなかったように見える**。登壇者の画面では、エラーを
 残す側に倒して、次に成功したときか一定時間で消すようにしている。
 
-これは実ブラウザのテストで見つけた。owner 以外が停止を押したときに
-「止められない」が出続けることを `test:browser` で固定している。
+停止が画面だけの制限になっていないことは `test:browser` で固定している。
+運営が止めたあと、画面を通さず直接 Firestore に書いても拒まれることを見ている。
 
 ## 検証
 
 `firestore.rules` が設計そのもので、`test/rules.test.mjs` が「本当にそう守れているか」の証拠。
 
     npm install
-    npm run test:rules    # エミュレータ / 42件
-    npm run test:e2e      # 本番 / 27件
+    npm run test:rules    # エミュレータ / 60件
+    npm run test:e2e      # 本番
 
-エミュレータ 42 件と本番 27 件がすべて通る状態を維持する。
+エミュレータと本番の両方が通る状態を維持する。本番でしか出ない失敗（複合インデックスの
+不足など）があるので、エミュレータだけでは足りない。
 Rules を触ったら両方が落ちないことを確認する。
 
 本番側を別に持っているのは、エミュレータと本番で `getAfter()` やクエリ制約の挙動が
 食い違っていないか、インデックスが本当に足りているかは本番でしか分からないため。
-2026-11-08 時点で、`where(createdAt >= sessionStartedAt) + orderBy(createdAt desc) + limit(50)`
-が複合インデックスなしで通ることを本番で確認している。
+2026-11-08 時点で、`orderBy(createdAt desc) + limit(50)` が複合インデックスなしで通ること、
+イベント一覧の `ownerUid == uid + orderBy(createdAt desc)` には複合インデックスが
+必要なことを本番で確認している（エミュレータはインデックスを検査しない）。

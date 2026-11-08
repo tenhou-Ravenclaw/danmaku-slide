@@ -48,15 +48,22 @@ npm run shell
 ## データモデル
 
 ```
-tracks/{trackId}        { name, title, speaker, sessionStartedAt, stopped, ownerUid, createdAt }
-  /comments/{id}        { text, createdAt }
-  /private/handoff      { code }
-  /operators/{uid}      { code }
-  /posters/{uid}        { lastPostAt }
+events/{eventId}          { name, heldOn, ownerUid, createdAt }
+  /private/handoff        { code }                  ← 運営を手伝う人用
+  /operators/{uid}        { code }
+  /tracks/{trackId}       { name, stopped, createdAt }
+    /comments/{id}        { text, createdAt }
+    /posters/{uid}        { lastPostAt }
 ```
 
 `trackId` は会場の「Track A」そのもので1日固定。だから **QR を印刷物に載せられる**。
-登壇者の交代は `sessionStartedAt` の更新だけで済み、QR は貼り替えない。
+登壇者が交代しても何も変えなくていいので、QR は貼り替えない。
+
+トラックに状態はひとつしか無い。`stopped`（受付の可否）だけで、触れるのは運営。
+**登壇の開始・終了は持たない。** 進行はイベントのタイムテーブルが持つもので、
+ここに置くと二重管理になり、押し忘れだけが増える。
+作ったトラックは受付前（`stopped: true`）で始まるので、前日に用意した QR が
+その場から生きてしまうことはない。
 
 ## 開発
 
@@ -78,13 +85,14 @@ npm run deploy        # Hosting と Rules を本番へ
 
 | | |
 |---|---|
-| 純粋ロジック | 40件 |
-| 透過シェルの設定 | 21件 |
-| Security Rules | 42件（エミュレータ）/ 27件（本番） |
-| Firestore 境界 | 14件 |
-| 実ブラウザ | 24件 |
+| 純粋ロジック | 77件 |
+| 透過シェルの設定 | 27件 |
+| Security Rules | 60件（エミュレータ）/ 本番 |
+| Firestore 境界 | 17件 |
+| 実ブラウザ | 44件 |
+| Chrome 拡張 | 16件 |
 
-ほかに Rules の不変条件ガード15件、秘密情報の履歴スキャン、依存の脆弱性を
+ほかに Rules の不変条件ガード26件、秘密情報の履歴スキャン、依存の脆弱性を
 配信物と開発ツールで基準を分けて見ている。詳しくは [CONTRIBUTING.md](CONTRIBUTING.md)。
 
 Rules のテストには JDK が必要（`brew install openjdk`）。

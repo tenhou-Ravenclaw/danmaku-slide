@@ -27,15 +27,11 @@ await env.withSecurityRulesDisabled(async (ctx) => {
   });
   await setDoc(doc(db, 'events/ev1/private/handoff'), { code: 'EVENT-CODE' });
   await setDoc(doc(db, 'events/ev1/tracks/tA'), {
-    // 投稿を見るテストが多いので、種は登壇中にしておく
-    name: 'Track A', stopped: false, live: true,
-    sessionStartedAt: Timestamp.now(), createdAt: Timestamp.now(),
+    name: 'Track A', stopped: false, createdAt: Timestamp.now(),
   });
-  await setDoc(doc(db, 'events/ev1/tracks/tA/private/handoff'), { code: 'TRACK-A-CODE' });
   await setDoc(doc(db, 'events/ev1/tracks/tA/comments/c1'), { text: 'hello', createdAt: Timestamp.now() });
   await setDoc(doc(db, 'events/ev1/tracks/tStopped'), {
-    name: 'Track Z', stopped: true, live: false,
-    sessionStartedAt: Timestamp.now(), createdAt: Timestamp.now(),
+    name: 'Track Z', stopped: true, createdAt: Timestamp.now(),
   });
 });
 
@@ -86,27 +82,22 @@ await t('EV 匿名ではイベントを消せない', () => assertFails(deleteDo
 
 // --- TR: トラック -------------------------------------------------------
 await t('TR 運営はトラックを作れる', () => assertSucceeds(setDoc(doc(asStaff('staff'), 'events/ev1/tracks/tNew'), {
-  name: 'Track D', stopped: false, live: false, live: false,
-  sessionStartedAt: serverTimestamp(), createdAt: serverTimestamp() })));
+  name: 'Track D', stopped: true, createdAt: serverTimestamp() })));
 await t('TR 運営以外はトラックを作れない',
   () => assertFails(setDoc(doc(asStaff('attacker'), 'events/ev1/tracks/tBad'), {
-    name: 'Track X', stopped: false, live: false,
-    sessionStartedAt: serverTimestamp(), createdAt: serverTimestamp() })));
-await t('TR 作成時に live を true にはできない',
-  () => assertFails(setDoc(doc(asStaff('staff'), 'events/ev1/tracks/tLive'), {
-    name: 'Track L', stopped: false, live: true,
-    sessionStartedAt: serverTimestamp(), createdAt: serverTimestamp() })));
-await t('TR 停止状態を作成時に true にはできない',
-  () => assertFails(setDoc(doc(asStaff('staff'), 'events/ev1/tracks/tBad2'), {
-    name: 'Track X', stopped: true, live: false,
-    sessionStartedAt: serverTimestamp(), createdAt: serverTimestamp() })));
+    name: 'Track X', stopped: true, createdAt: serverTimestamp() })));
+await t('TR 作成時から受付中にはできない（前日のQRが生きてしまう）',
+  () => assertFails(setDoc(doc(asStaff('staff'), 'events/ev1/tracks/tOpen'), {
+    name: 'Track O', stopped: false, createdAt: serverTimestamp() })));
 await t('TR 関係ない人は stopped を書けない',
   () => assertFails(updateDoc(doc(as('attacker'), 'events/ev1/tracks/tA'), { stopped: true })));
-await t('TR 他人は sessionStartedAt を書けない',
-  () => assertFails(updateDoc(doc(as('attacker'), 'events/ev1/tracks/tA'), { sessionStartedAt: serverTimestamp() })));
 
 await t('TR 演題は持たない（書こうとすると落ちる）',
   () => assertFails(updateDoc(doc(asStaff('staff'), 'events/ev1/tracks/tA'), { title: 'はじめてのLT' })));
+await t('TR セッションの概念を持たない（書こうとすると落ちる）',
+  () => assertFails(updateDoc(doc(asStaff('staff'), 'events/ev1/tracks/tA'), { sessionStartedAt: serverTimestamp() })));
+await t('TR live を足せない（登壇の開始・終了はこの道具の仕事ではない）',
+  () => assertFails(updateDoc(doc(asStaff('staff'), 'events/ev1/tracks/tA'), { live: true })));
 await t('TR createdAt は書き換えられない',
   () => assertFails(updateDoc(doc(asStaff('staff'), 'events/ev1/tracks/tA'), { createdAt: serverTimestamp() })));
 await t('TR 名前は後から変えられない',
@@ -116,38 +107,24 @@ await t('TR 他人はトラックを消せない',
 
 await t('TR 匿名ではトラックを作れない',
   () => assertFails(setDoc(doc(as('staff'), 'events/ev1/tracks/tAnon'), {
-    name: 'Track Anon', stopped: false, live: false,
-    sessionStartedAt: serverTimestamp(), createdAt: serverTimestamp() })));
+    name: 'Track Anon', stopped: true, createdAt: serverTimestamp() })));
 await t('TR 匿名ではトラックを消せない',
   () => assertFails(deleteDoc(doc(as('staff'), 'events/ev1/tracks/tStopped'))));
 await t('TR 運営はトラックを消せる', async () => {
   await assertSucceeds(setDoc(doc(asStaff('staff'), 'events/ev1/tracks/tDel'), {
-    name: 'Track Del', stopped: false, live: false,
-    sessionStartedAt: serverTimestamp(), createdAt: serverTimestamp() }));
+    name: 'Track Del', stopped: true, createdAt: serverTimestamp() }));
   await assertSucceeds(deleteDoc(doc(asStaff('staff'), 'events/ev1/tracks/tDel')));
 });
-await t('TR 匿名の登壇者でも開始・終了はできる', async () => {
-  // 登壇中に本人確認を挟むのは現実的でない。合言葉で足りる。
-  await assertSucceeds(setDoc(doc(as('sp9'), 'events/ev1/tracks/tA/operators/sp9'), { code: 'TRACK-A-CODE' }));
-  await assertSucceeds(updateDoc(doc(as('sp9'), 'events/ev1/tracks/tA'),
-    { sessionStartedAt: serverTimestamp(), live: true }));
-  await assertSucceeds(updateDoc(doc(as('sp9'), 'events/ev1/tracks/tA'), { live: false }));
-});
 
-await t('TR 登壇者は投稿を止められない', async () => {
-  // 止めるのは運営の操作。荒らしへの対処なので登壇者には持たせない。
+await t('TR 登壇者にはトラックに書き込む先が無い', async () => {
+  // 合言葉の仕組みごと持たない。何も開けない鍵を配ると、持っている側が
+  // 権限があると思い込む。
+  await assertFails(setDoc(doc(as('sp9'), 'events/ev1/tracks/tA/operators/sp9'), { code: 'TRACK-A-CODE' }));
+  await assertFails(setDoc(doc(as('sp9'), 'events/ev1/tracks/tA/private/handoff'), { code: 'X' }));
   await assertFails(updateDoc(doc(as('sp9'), 'events/ev1/tracks/tA'), { stopped: true }));
 });
 
-await t('TR 運営が止めたものを登壇者は戻せない', async () => {
-  await assertSucceeds(updateDoc(doc(asStaff('staff'), 'events/ev1/tracks/tA'), { stopped: true }));
-  await assertFails(updateDoc(doc(as('sp9'), 'events/ev1/tracks/tA'), { stopped: false }));
-  // 登壇者は自分の開始・終了は続けられる
-  await assertSucceeds(updateDoc(doc(as('sp9'), 'events/ev1/tracks/tA'), { live: false }));
-  await assertSucceeds(updateDoc(doc(asStaff('staff'), 'events/ev1/tracks/tA'), { stopped: false }));
-});
-
-await t('TR 運営は止めたり戻したりできる', async () => {
+await t('TR 運営は止めたり開けたりできる', async () => {
   await assertSucceeds(updateDoc(doc(asStaff('staff'), 'events/ev1/tracks/tA'), { stopped: true }));
   await assertSucceeds(updateDoc(doc(asStaff('staff'), 'events/ev1/tracks/tA'), { stopped: false }));
 });
@@ -164,31 +141,17 @@ await t('HO 誤コードでは運営を手伝えない',
 await t('HO 正コードで運営を手伝える',
   () => assertSucceeds(setDoc(doc(as('helper'), 'events/ev1/operators/helper'), { code: 'EVENT-CODE' })));
 await t('HO 運営を手伝う人は投稿を止められる',
+  () => assertSucceeds(updateDoc(doc(as('helper'), 'events/ev1/tracks/tA'), { stopped: true })));
+await t('HO 運営を手伝う人は投稿を開けられる',
   () => assertSucceeds(updateDoc(doc(as('helper'), 'events/ev1/tracks/tA'), { stopped: false })));
 await t('HO 手伝う人でも匿名ではイベント名を変えられない',
   () => assertFails(updateDoc(doc(as('helper'), 'events/ev1'), { name: '手伝いから' })));
 
-await t('HO トラックの引き継ぎコードは誰も読めない',
-  () => assertFails(getDoc(doc(as('speaker1'), 'events/ev1/tracks/tA/private/handoff'))));
-await t('HO 誤コードでは登壇者になれない',
-  () => assertFails(setDoc(doc(as('speaker1'), 'events/ev1/tracks/tA/operators/speaker1'), { code: 'WRONG' })));
-await t('HO 他人のUIDで登録できない',
-  () => assertFails(setDoc(doc(as('speaker1'), 'events/ev1/tracks/tA/operators/speaker2'), { code: 'TRACK-A-CODE' })));
-await t('HO 正コードで登壇者になれる',
-  () => assertSucceeds(setDoc(doc(as('speaker1'), 'events/ev1/tracks/tA/operators/speaker1'), { code: 'TRACK-A-CODE' })));
-await t('HO 登壇者は自分のトラックを操作できる',
-  () => assertSucceeds(updateDoc(doc(as('speaker1'), 'events/ev1/tracks/tA'), { sessionStartedAt: serverTimestamp() })));
-await t('HO 登壇者は他のトラックを操作できない',
-  () => assertFails(updateDoc(doc(as('speaker1'), 'events/ev1/tracks/tStopped'), { stopped: false })));
-await t('HO 運用者登録は上書きできない',
-  () => assertFails(updateDoc(doc(as('speaker1'), 'events/ev1/tracks/tA/operators/speaker1'), { code: 'TRACK-A-CODE' })));
-
 // 投稿のテストは専用のトラックでやる。
-// 他のテストが tA の live を落とすと、ここが巻き添えで落ちる。
+// 他のテストが tA を止めると、ここが巻き添えで落ちる。
 await env.withSecurityRulesDisabled(async (ctx) => {
   await setDoc(doc(ctx.firestore(), 'events/ev1/tracks/tLive'), {
-    name: 'Track Live', stopped: false, live: true,
-    sessionStartedAt: Timestamp.fromMillis(0), createdAt: Timestamp.now(),
+    name: 'Track Live', stopped: false, createdAt: Timestamp.now(),
   });
 });
 
@@ -247,15 +210,13 @@ await t('T4 トラック一覧の大量取得は落ちる',
 await t('T4 トラック一覧は 50 まで通る',
   () => assertSucceeds(getDocs(query(collection(as('r1'), 'events/ev1/tracks'), limit(50)))));
 
-// --- 停止後 -------------------------------------------------------------
-await t('ST 停止済みトラックには投稿できない', () => assertFails(post(as('p8'), 'tStopped', 'p8', 'late')));
-await t('ST 開始前のトラックにも投稿できない', async () => {
-  await env.withSecurityRulesDisabled(async (ctx) => {
-    await setDoc(doc(ctx.firestore(), 'events/ev1/tracks/tIdle'), {
-      name: 'Track Idle', stopped: false, live: false,
-      sessionStartedAt: Timestamp.now(), createdAt: Timestamp.now() });
-  });
-  await assertFails(post(as('p9'), 'tIdle', 'p9', 'まだ'));
+// --- 受付前・停止中 -----------------------------------------------------
+await t('ST 停止中のトラックには投稿できない', () => assertFails(post(as('p8'), 'tStopped', 'p8', 'late')));
+await t('ST 作ったばかりのトラックにも投稿できない', async () => {
+  // 受付前（stopped）で作られるので、運営が開けるまでは誰も送れない
+  await assertSucceeds(setDoc(doc(asStaff('staff'), 'events/ev1/tracks/tFresh'), {
+    name: 'Track Fresh', stopped: true, createdAt: serverTimestamp() }));
+  await assertFails(post(as('p9'), 'tFresh', 'p9', 'まだ'));
 });
 await t('ST 停止済みでも履歴は読める',
   () => assertSucceeds(getDocs(query(collection(as('r1'), 'events/ev1/tracks/tStopped/comments'), limit(50)))));
