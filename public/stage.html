@@ -25,8 +25,8 @@
   .state .s { font-size: .75rem; color: var(--muted); }
   .state[data-kind="live"]    .dot { background: var(--good); box-shadow: 0 0 0 4px rgba(95,211,154,.16); }
   .state[data-kind="stopped"] .dot { background: var(--warn); }
+  .state[data-kind="idle"]    .dot { background: var(--muted); }
   .state[data-kind="error"]   .dot { background: var(--bad); }
-  #stopBtn { padding: .9rem 2rem; font-size: 1rem; }
 
   main { flex: 1; display: grid; gap: 1rem; grid-template-columns: 1fr; padding: 1.25rem;
          max-width: 70rem; width: 100%; margin: 0 auto; align-content: start; }
@@ -54,7 +54,7 @@
                  font-variant-numeric: tabular-nums; }
   #feed { list-style: none; margin: 0; padding: 0; overflow-y: auto; max-height: 60vh; }
   /* 押すものは指でも届く大きさにする */
-  #stopBtn, #resumeBtn, #startBtn, #endBtn, #openApp { min-height: 48px; }
+  #startBtn, #endBtn, #openApp { min-height: 48px; }
   #feed li { display: flex; gap: 1rem; align-items: baseline;
              padding: .7rem 1.1rem; border-bottom: 1px solid var(--line); }
   #feed li:last-child { border-bottom: 0; }
@@ -74,8 +74,9 @@
     <span><span class="t" id="stateText">読み込み中</span><br><span class="s" id="stateSub"></span></span>
   </div>
   <span class="spacer"></span>
-  <button id="stopBtn" class="btn danger">投稿を止める</button>
-  <button id="resumeBtn" class="btn hidden" style="padding:.9rem 2rem">投稿を再開する</button>
+  <!-- 停止は運営の操作。登壇者は押せない（Rules でも拒んでいる）。 -->
+  <p id="stoppedNote" class="hidden" style="margin:0;font-size:.85rem;color:var(--warn);max-width:20rem">
+    運営が投稿を止めています。再開は運営にお願いしてください。</p>
 </div>
 
 <main>

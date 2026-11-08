@@ -79,10 +79,12 @@ export async function createStage({ eventId, trackId, code, now = () => Date.now
 
     if (started) el('nowMeta').textContent = startedAtText() || '受付中';
 
-    el('stopBtn').classList.toggle('hidden', track.stopped);
-    el('resumeBtn').classList.toggle('hidden', !track.stopped);
+    // 止めたのは運営。登壇者には何が起きているかだけ伝える。
+    el('stoppedNote').classList.toggle('hidden', !track.stopped);
 
-    if (track.stopped) say('停止中', '投稿は拒否されています', 'stopped');
+    // 三つの状態をそのまま出す。「終わった」と「止められた」は別のこと。
+    if (track.stopped) say('停止中', '運営が投稿を止めています', 'stopped');
+    else if (!track.live) say('開始前', '「はじめる」を押すと投稿を受け付けます', 'idle');
     else say('受付中', lastAt ? `最後のコメント ${ago(lastAt, now())}` : 'まだ届いていません', 'live');
   }
 
@@ -181,20 +183,6 @@ export async function createStage({ eventId, trackId, code, now = () => Date.now
     try { await bus.endSession(); clearError(); }
     catch (e) { fail(`終えられない: ${e.code ?? e.message}`); }
     finally { el('endBtn').disabled = false; }
-  });
-
-  el('stopBtn').addEventListener('click', async () => {
-    el('stopBtn').disabled = true;
-    try { await bus.stop(); clearError(); }
-    catch (e) { fail(`止められない: ${e.code ?? e.message}`); }
-    finally { el('stopBtn').disabled = false; }
-  });
-
-  el('resumeBtn').addEventListener('click', async () => {
-    el('resumeBtn').disabled = true;
-    try { await bus.resume(); clearError(); }
-    catch (e) { fail(`再開できない: ${e.code ?? e.message}`); }
-    finally { el('resumeBtn').disabled = false; }
   });
 
   // アプリが開いたかどうかは直接は分からない。

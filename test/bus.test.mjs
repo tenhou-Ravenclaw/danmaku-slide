@@ -95,6 +95,7 @@ await t('投稿が購読側に届く', async () => {
   const staff = evBus('staff7');
   await staff.createEvent('ev-post', { name: 'イベント' });
   await staff.createTrack('ev-post', 'a', { name: 'Track A' });
+  await bus('staff7', 'ev-post', 'a').startSession();   // 開始前は投稿できない
 
   const watcher = bus('staff7', 'ev-post', 'a');
   const track = await once((cb, err) => watcher.watchTrack(cb, err));
@@ -114,6 +115,7 @@ await t('最初のスナップショットは backlog として区別される',
   const staff = evBus('staff8');
   await staff.createEvent('ev-backlog', { name: 'イベント' });
   await staff.createTrack('ev-backlog', 'a', { name: 'Track A' });
+  await bus('staff8', 'ev-backlog', 'a').startSession();
   const watcher = bus('staff8', 'ev-backlog', 'a');
   const track = await once((cb, err) => watcher.watchTrack(cb, err));
   await bus('po2', 'ev-backlog', 'a').post('さき');
@@ -131,6 +133,7 @@ await t('前のセッションのコメントは購読に入らない', async ()
   await staff.createEvent('ev-session', { name: 'イベント' });
   await staff.createTrack('ev-session', 'a', { name: 'Track A' });
   const sp = bus('staff9', 'ev-session', 'a');
+  await sp.startSession();
   await bus('po3', 'ev-session', 'a').post('前の登壇のコメント');
   await sleep(400);
 
@@ -185,20 +188,40 @@ await t('サーバに弾かれたら手元の時刻は進めない', async () =>
 });
 
 // --- 登壇の開始と終了 ---------------------------------------------------
-await t('登壇を終えると投稿が止まる', async () => {
+await t('登壇を終えると投稿が止まる（登壇者の操作）', async () => {
   const staff = evBus('staffA');
   await staff.createEvent('ev-end', { name: 'イベント' });
   await staff.createTrack('ev-end', 'a', { name: 'Track A' });
   const sp = bus('staffA', 'ev-end', 'a');
+  await sp.startSession();
   const po = bus('poA', 'ev-end', 'a');
   const un = po.watchTrack(() => {});
   await sleep(300);
   await sp.endSession();
   await sleep(500);
   un();
-  assert(po.isStopped === true, '停止が伝わっていない');
+  // 終えても stopped は立たない。止めるのは運営の操作。
+  assert(po.isStopped === false, 'stopped が立っている');
+  assert(po.isLive === false, '登壇中のままになっている');
   try { await po.post('おそい'); throw new Error('通った'); }
   catch (e) { assert(e.kind === 'stopped', `kind=${e.kind}`); }
+});
+
+await t('運営は投稿を止めたり戻したりできる', async () => {
+  const staff = evBus('staffStop');
+  await staff.createEvent('ev-stop', { name: 'イベント' });
+  await staff.createTrack('ev-stop', 'a', { name: 'Track A' });
+  const sp = bus('staffStop', 'ev-stop', 'a');
+  await sp.startSession();
+  await sp.stop();
+  await sleep(400);
+  let denied = false;
+  try { await bus('poStop', 'ev-stop', 'a').post('止まっている'); }
+  catch { denied = true; }
+  assert(denied, '止めたのに通った');
+  await sp.resume();
+  await sleep(400);
+  await bus('poStop2', 'ev-stop', 'a').post('戻った');
 });
 
 await t('次の登壇が始まると再スキャンなしで送れる', async () => {
@@ -206,13 +229,13 @@ await t('次の登壇が始まると再スキャンなしで送れる', async ()
   await staff.createEvent('ev-next', { name: 'イベント' });
   await staff.createTrack('ev-next', 'a', { name: 'Track A' });
   const sp = bus('staffB', 'ev-next', 'a');
+  await sp.startSession();
   const po = bus('poB', 'ev-next', 'a');
   const un = po.watchTrack(() => {});
   await sleep(300);
-  await sp.endSession();    await sleep(400);
+  await sp.endSession();   await sleep(400);
   await sp.startSession(); await sleep(500);
   un();
-  assert(po.isStopped === false, '再開が伝わっていない');
   await po.post('おかえり');
 });
 

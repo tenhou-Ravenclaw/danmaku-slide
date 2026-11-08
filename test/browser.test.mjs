@@ -135,7 +135,7 @@ async function makeEventInBrowser(name, trackNames = ['Track A']) {
 async function startTrack(orgPage, row = 0) {
   const sp = await open(await speakerLink(orgPage, row));
   await sp.page.waitForFunction(
-    () => /受付中|停止中/.test(document.getElementById('stateText')?.textContent ?? ''), { timeout: 25000 });
+    () => /受付中|開始前/.test(document.getElementById('stateText')?.textContent ?? ''), { timeout: 25000 });
   await sp.page.click('#startBtn');
   await sp.page.waitForFunction(
     () => !document.getElementById('afterStart').classList.contains('hidden'), { timeout: 25000 });
@@ -309,7 +309,7 @@ await t('登壇者ページは手順1から始まる', async () => {
   const org = await makeEventInBrowser('手順の会', ['Track A']);
   const { page, errors } = await open(await speakerLink(org.page));
   await page.waitForFunction(
-    () => /受付中|停止中/.test(document.getElementById('stateText')?.textContent ?? ''), { timeout: 20000 });
+    () => /受付中|開始前/.test(document.getElementById('stateText')?.textContent ?? ''), { timeout: 20000 });
   assert(await page.getAttribute('#step1', 'data-state') === 'now', '手順1が「いま」でない');
   assert(/Track A/.test(await page.textContent('#trackName')), await page.textContent('#trackName'));
   assert(/手順の会/.test(await page.textContent('#eventName')), await page.textContent('#eventName'));
@@ -336,7 +336,7 @@ await t('登壇者は押すだけで始められる', async () => {
   const org = await makeEventInBrowser('開始の会', ['Track A']);
   const { page, errors } = await open(await speakerLink(org.page));
   await page.waitForFunction(
-    () => /受付中|停止中/.test(document.getElementById('stateText')?.textContent ?? ''), { timeout: 20000 });
+    () => /受付中|開始前/.test(document.getElementById('stateText')?.textContent ?? ''), { timeout: 20000 });
   assert(await page.evaluate(() => document.querySelectorAll('#beforeStart input').length) === 0,
     '入力欄が残っている');
   await page.click('#startBtn');
@@ -362,7 +362,7 @@ await t('開始前は投稿できず、開始すると送れる', async () => {
 
   const sp = await open(await speakerLink(org.page));
   await sp.page.waitForFunction(
-    () => /受付中|停止中/.test(document.getElementById('stateText')?.textContent ?? ''), { timeout: 20000 });
+    () => /受付中|開始前/.test(document.getElementById('stateText')?.textContent ?? ''), { timeout: 20000 });
   await sp.page.click('#startBtn');
 
   await po.page.waitForFunction(
@@ -390,20 +390,62 @@ await t('届いたコメントが手元に出て、件数が増える', async ()
 await t('登壇を終えると投稿が止まる', async () => {
   const org = await makeEventInBrowser('終了の会', ['Track A']);
   const { page } = await open(await speakerLink(org.page));
+  // 作ったばかりは開始前。ここで受付中を待つと永遠に来ない。
   await page.waitForFunction(
-    () => /受付中/.test(document.getElementById('stateText')?.textContent ?? ''), { timeout: 20000 });
+    () => /開始前/.test(document.getElementById('stateText')?.textContent ?? ''), { timeout: 20000 });
   await page.click('#startBtn');
   await page.waitForFunction(
     () => !document.getElementById('afterStart').classList.contains('hidden'), { timeout: 20000 });
   await page.click('#endBtn');
   await page.waitForFunction(
-    () => /停止中/.test(document.getElementById('stateText')?.textContent ?? ''), { timeout: 20000 });
+    () => /開始前/.test(document.getElementById('stateText')?.textContent ?? ''), { timeout: 20000 });
 
   const po = await actor();
   let denied = false;
   try { await busFor(po, org.eventId, 'a').post('おそい'); } catch { denied = true; }
   assert(denied, '終えたのに投稿が通った');
   await page.close(); await org.page.close();
+});
+
+await t('投稿を止めるのは運営だけ（登壇者の画面に操作はない）', async () => {
+  const org = await makeLiveEvent('止める会', ['Track A']);
+  const sp = await open(await speakerLink(org.page));
+  await sp.page.waitForFunction(
+    () => /受付中/.test(document.getElementById('stateText')?.textContent ?? ''), { timeout: 20000 });
+  // 登壇者には止める手段を持たせない。間違って押せる場所に置かないこと自体を見る。
+  assert(await sp.page.locator('#stopBtn').count() === 0, '登壇者に停止ボタンがある');
+  assert(await sp.page.locator('#resumeBtn').count() === 0, '登壇者に再開ボタンがある');
+
+  const aud = await open(`${HOST}/post.html?emu=1&e=${org.eventId}&t=a`);
+  await aud.page.waitForFunction(
+    () => /登壇中/.test(document.getElementById('title')?.textContent ?? ''), { timeout: 20000 });
+
+  await org.page.locator('#tracks tr').nth(0).locator('.btn.stop').click();
+
+  // 観客には「終わった」ではなく「止まっている」と伝わること
+  await aud.page.waitForFunction(
+    () => /運営が投稿を止めています/.test(document.getElementById('note')?.textContent ?? ''),
+    { timeout: 20000 });
+  await aud.page.fill('#text', 'いま送れないはず');
+  assert(await aud.page.isDisabled('#send'), '止めたのに送れる');
+  assert(/登壇中/.test(await aud.page.textContent('#title')), await aud.page.textContent('#title'));
+
+  // 登壇者にも理由が出る
+  await sp.page.waitForFunction(
+    () => !document.getElementById('stoppedNote').classList.contains('hidden'), { timeout: 20000 });
+  assert(/停止中/.test(await sp.page.textContent('#stateText')), await sp.page.textContent('#stateText'));
+
+  // サーバも拒む（画面だけの制限にしない）
+  const po = await actor();
+  let denied = false;
+  try { await busFor(po, org.eventId, 'a').post('直接でも通らない'); } catch { denied = true; }
+  assert(denied, '止めたのにサーバが受けた');
+
+  // 運営が戻せば送れる
+  await org.page.locator('#tracks tr').nth(0).locator('.btn.resume').click();
+  await aud.page.waitForFunction(
+    () => document.getElementById('send')?.disabled === false, { timeout: 20000 });
+  await aud.page.close(); await sp.page.close(); await org.page.close();
 });
 
 await t('Enter では足さない（押し間違いで増やさない）', async () => {
@@ -526,7 +568,7 @@ await t('登壇終了中は理由が出て、再スキャンが要らないと�
     () => /受付中/.test(document.getElementById('stateText')?.textContent ?? ''), { timeout: 20000 });
   await sp.page.click('#endBtn');
   await sp.page.waitForFunction(
-    () => /停止中/.test(document.getElementById('stateText')?.textContent ?? ''), { timeout: 20000 });
+    () => /開始前/.test(document.getElementById('stateText')?.textContent ?? ''), { timeout: 20000 });
   await sp.page.close();
   const { page } = await open(`${HOST}/post.html?emu=1&e=${org.eventId}&t=a`);
   await page.waitForFunction(

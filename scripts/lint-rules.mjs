@@ -42,6 +42,8 @@ const invariants = [
   ['createdAt の書き換え禁止',            'request.resource.data.createdAt == resource.data.createdAt'],
   ['更新できるフィールドの限定',          'affectedKeys()'],
   ['演題を持たない',                      "hasOnly(['sessionStartedAt','stopped','live'])"],
+  ['停止は運営だけが触れる',              "hasOnly(['sessionStartedAt','live'])"],
+  ['登壇中でなければ受け付けない',        'get(trackPath()).data.live == true'],
 ];
 for (const [label, needle] of invariants) {
   check(`${label}（${needle}）`, rules.includes(needle));

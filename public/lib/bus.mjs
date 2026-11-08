@@ -101,6 +101,10 @@ export function createBus(sdk, { db, eventId, trackId, uid, now = () => Date.now
   // サーバの返事だけでは UI が理由を出せない。手元でも持っておく。
   let lastPostAt = -Infinity;
   let stopped = false;
+  let live = false;
+  // 一度も見ていない状態を「開始前」と決めつけない。
+  // 購読していない使い方もあるので、見るまではサーバの判断に任せる。
+  let observed = false;
 
   return {
     eventId, trackId,
@@ -111,6 +115,8 @@ export function createBus(sdk, { db, eventId, trackId, uid, now = () => Date.now
         if (!snap.exists()) { onTrack(null); return; }
         const d = snap.data();
         stopped = d.stopped === true;
+        live = d.live === true;
+        observed = true;
         onTrack({
           id: snap.id,
           name: d.name,
@@ -166,7 +172,10 @@ export function createBus(sdk, { db, eventId, trackId, uid, now = () => Date.now
       const t = String(text ?? '').trim();
       if (t.length === 0) throw new PostError('empty');
       if (t.length > MAX_TEXT) throw new PostError('too-long');
-      if (stopped) throw new PostError('stopped');
+      // 終了（live=false）と停止（stopped=true）はどちらでも送れないが、
+      // 観客への言い方が変わる。終わったのか、止まっているだけなのか。
+      if (observed && !live) throw new PostError('stopped');
+      if (observed && stopped) throw new PostError('paused');
       if (this.cooldownRemaining() > 0) throw new PostError('cooldown');
 
       const b = writeBatch(db);
@@ -188,6 +197,8 @@ export function createBus(sdk, { db, eventId, trackId, uid, now = () => Date.now
     },
 
     get isStopped() { return stopped; },
+    get isLive() { return live && !stopped; },
+    get isObserved() { return observed; },
 
     // --- 登壇者の操作 ---------------------------------------------------
 
@@ -203,12 +214,18 @@ export function createBus(sdk, { db, eventId, trackId, uid, now = () => Date.now
       });
     },
 
-    /** 登壇を終える。次の「開始」まで投稿は拒否される。 */
+    /**
+     * 登壇を終える。次の「開始」まで投稿は拒否される。
+     * stopped は触らない。あれは運営の操作で、登壇者は戻せない。
+     */
     endSession() {
-      return updateDoc(trackRef(), { stopped: true, live: false });
+      return updateDoc(trackRef(), { live: false });
     },
 
-    /** 荒らしへの最終手段。これ以降の投稿は Rules が拒否する。 */
+    /**
+     * 荒らしへの最終手段。運営だけが触れる（Rules で縛っている）。
+     * 運営が止めたものを登壇者が戻せてはいけない。
+     */
     stop()   { return updateDoc(trackRef(), { stopped: true }); },
     resume() { return updateDoc(trackRef(), { stopped: false }); },
 

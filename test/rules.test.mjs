@@ -27,7 +27,8 @@ await env.withSecurityRulesDisabled(async (ctx) => {
   });
   await setDoc(doc(db, 'events/ev1/private/handoff'), { code: 'EVENT-CODE' });
   await setDoc(doc(db, 'events/ev1/tracks/tA'), {
-    name: 'Track A', stopped: false, live: false,
+    // 投稿を見るテストが多いので、種は登壇中にしておく
+    name: 'Track A', stopped: false, live: true,
     sessionStartedAt: Timestamp.now(), createdAt: Timestamp.now(),
   });
   await setDoc(doc(db, 'events/ev1/tracks/tA/private/handoff'), { code: 'TRACK-A-CODE' });
@@ -99,12 +100,11 @@ await t('TR 停止状態を作成時に true にはできない',
   () => assertFails(setDoc(doc(asStaff('staff'), 'events/ev1/tracks/tBad2'), {
     name: 'Track X', stopped: true, live: false,
     sessionStartedAt: serverTimestamp(), createdAt: serverTimestamp() })));
-await t('TR 他人は stopped を書けない',
+await t('TR 関係ない人は stopped を書けない',
   () => assertFails(updateDoc(doc(as('attacker'), 'events/ev1/tracks/tA'), { stopped: true })));
 await t('TR 他人は sessionStartedAt を書けない',
   () => assertFails(updateDoc(doc(as('attacker'), 'events/ev1/tracks/tA'), { sessionStartedAt: serverTimestamp() })));
-await t('TR 運営は stopped を書ける',
-  () => assertSucceeds(updateDoc(doc(asStaff('staff'), 'events/ev1/tracks/tA'), { stopped: false })));
+
 await t('TR 演題は持たない（書こうとすると落ちる）',
   () => assertFails(updateDoc(doc(asStaff('staff'), 'events/ev1/tracks/tA'), { title: 'はじめてのLT' })));
 await t('TR createdAt は書き換えられない',
@@ -126,11 +126,30 @@ await t('TR 運営はトラックを消せる', async () => {
     sessionStartedAt: serverTimestamp(), createdAt: serverTimestamp() }));
   await assertSucceeds(deleteDoc(doc(asStaff('staff'), 'events/ev1/tracks/tDel')));
 });
-await t('TR 匿名の登壇者でも開始・停止はできる', async () => {
+await t('TR 匿名の登壇者でも開始・終了はできる', async () => {
   // 登壇中に本人確認を挟むのは現実的でない。合言葉で足りる。
   await assertSucceeds(setDoc(doc(as('sp9'), 'events/ev1/tracks/tA/operators/sp9'), { code: 'TRACK-A-CODE' }));
-  await assertSucceeds(updateDoc(doc(as('sp9'), 'events/ev1/tracks/tA'), { stopped: true }));
-  await assertSucceeds(updateDoc(doc(as('sp9'), 'events/ev1/tracks/tA'), { stopped: false }));
+  await assertSucceeds(updateDoc(doc(as('sp9'), 'events/ev1/tracks/tA'),
+    { sessionStartedAt: serverTimestamp(), live: true }));
+  await assertSucceeds(updateDoc(doc(as('sp9'), 'events/ev1/tracks/tA'), { live: false }));
+});
+
+await t('TR 登壇者は投稿を止められない', async () => {
+  // 止めるのは運営の操作。荒らしへの対処なので登壇者には持たせない。
+  await assertFails(updateDoc(doc(as('sp9'), 'events/ev1/tracks/tA'), { stopped: true }));
+});
+
+await t('TR 運営が止めたものを登壇者は戻せない', async () => {
+  await assertSucceeds(updateDoc(doc(asStaff('staff'), 'events/ev1/tracks/tA'), { stopped: true }));
+  await assertFails(updateDoc(doc(as('sp9'), 'events/ev1/tracks/tA'), { stopped: false }));
+  // 登壇者は自分の開始・終了は続けられる
+  await assertSucceeds(updateDoc(doc(as('sp9'), 'events/ev1/tracks/tA'), { live: false }));
+  await assertSucceeds(updateDoc(doc(asStaff('staff'), 'events/ev1/tracks/tA'), { stopped: false }));
+});
+
+await t('TR 運営は止めたり戻したりできる', async () => {
+  await assertSucceeds(updateDoc(doc(asStaff('staff'), 'events/ev1/tracks/tA'), { stopped: true }));
+  await assertSucceeds(updateDoc(doc(asStaff('staff'), 'events/ev1/tracks/tA'), { stopped: false }));
 });
 
 // --- HO: 引き継ぎ -------------------------------------------------------
@@ -144,7 +163,7 @@ await t('HO 誤コードでは運営を手伝えない',
   () => assertFails(setDoc(doc(as('helper'), 'events/ev1/operators/helper'), { code: 'WRONG' })));
 await t('HO 正コードで運営を手伝える',
   () => assertSucceeds(setDoc(doc(as('helper'), 'events/ev1/operators/helper'), { code: 'EVENT-CODE' })));
-await t('HO 運営を手伝う人はトラックを操作できる',
+await t('HO 運営を手伝う人は投稿を止められる',
   () => assertSucceeds(updateDoc(doc(as('helper'), 'events/ev1/tracks/tA'), { stopped: false })));
 await t('HO 手伝う人でも匿名ではイベント名を変えられない',
   () => assertFails(updateDoc(doc(as('helper'), 'events/ev1'), { name: '手伝いから' })));
@@ -164,28 +183,37 @@ await t('HO 登壇者は他のトラックを操作できない',
 await t('HO 運用者登録は上書きできない',
   () => assertFails(updateDoc(doc(as('speaker1'), 'events/ev1/tracks/tA/operators/speaker1'), { code: 'TRACK-A-CODE' })));
 
+// 投稿のテストは専用のトラックでやる。
+// 他のテストが tA の live を落とすと、ここが巻き添えで落ちる。
+await env.withSecurityRulesDisabled(async (ctx) => {
+  await setDoc(doc(ctx.firestore(), 'events/ev1/tracks/tLive'), {
+    name: 'Track Live', stopped: false, live: true,
+    sessionStartedAt: Timestamp.fromMillis(0), createdAt: Timestamp.now(),
+  });
+});
+
 // --- T5: 入力の形 -------------------------------------------------------
-await t('T5 空文字は投稿できない', () => assertFails(post(as('p1'), 'tA', 'p1', '')));
-await t('T5 61文字は投稿できない', () => assertFails(post(as('p1'), 'tA', 'p1', 'あ'.repeat(61))));
-await t('T5 60文字は投稿できる', () => assertSucceeds(post(as('p60'), 'tA', 'p60', 'あ'.repeat(60))));
+await t('T5 空文字は投稿できない', () => assertFails(post(as('p1'), 'tLive', 'p1', '')));
+await t('T5 61文字は投稿できない', () => assertFails(post(as('p1'), 'tLive', 'p1', 'あ'.repeat(61))));
+await t('T5 60文字は投稿できる', () => assertSucceeds(post(as('p60'), 'tLive', 'p60', 'あ'.repeat(60))));
 await t('T5 余計なフィールドは落ちる', () => {
   const db = as('p2'); const b = writeBatch(db);
-  b.set(doc(collection(db, 'events/ev1/tracks/tA/comments')),
+  b.set(doc(collection(db, 'events/ev1/tracks/tLive/comments')),
     { text: 'hi', createdAt: serverTimestamp(), color: 'red' });
-  b.set(doc(db, 'events/ev1/tracks/tA/posters/p2'), { lastPostAt: serverTimestamp() });
+  b.set(doc(db, 'events/ev1/tracks/tLive/posters/p2'), { lastPostAt: serverTimestamp() });
   return assertFails(b.commit());
 });
 await t('T5 createdAt のクライアント偽装は落ちる', () => {
   const db = as('p3'); const b = writeBatch(db);
-  b.set(doc(collection(db, 'events/ev1/tracks/tA/comments')),
+  b.set(doc(collection(db, 'events/ev1/tracks/tLive/comments')),
     { text: 'hi', createdAt: Timestamp.fromMillis(0) });
-  b.set(doc(db, 'events/ev1/tracks/tA/posters/p3'), { lastPostAt: serverTimestamp() });
+  b.set(doc(db, 'events/ev1/tracks/tLive/posters/p3'), { lastPostAt: serverTimestamp() });
   return assertFails(b.commit());
 });
 await t('T5 数値テキストは落ちる', () => {
   const db = as('p4'); const b = writeBatch(db);
-  b.set(doc(collection(db, 'events/ev1/tracks/tA/comments')), { text: 12345, createdAt: serverTimestamp() });
-  b.set(doc(db, 'events/ev1/tracks/tA/posters/p4'), { lastPostAt: serverTimestamp() });
+  b.set(doc(collection(db, 'events/ev1/tracks/tLive/comments')), { text: 12345, createdAt: serverTimestamp() });
+  b.set(doc(db, 'events/ev1/tracks/tLive/posters/p4'), { lastPostAt: serverTimestamp() });
   return assertFails(b.commit());
 });
 
@@ -199,15 +227,15 @@ await t('T3 運営でもコメントは消せない',
 
 // --- T4: レート制限と読み取り量 -----------------------------------------
 await t('T4 posters を伴わない単発投稿は落ちる',
-  () => assertFails(setDoc(doc(collection(as('p5'), 'events/ev1/tracks/tA/comments')),
+  () => assertFails(setDoc(doc(collection(as('p5'), 'events/ev1/tracks/tLive/comments')),
     { text: 'solo', createdAt: serverTimestamp() })));
-await t('T4 1投稿目は通る', () => assertSucceeds(post(as('p6'), 'tA', 'p6', 'first')));
-await t('T4 2秒以内の連投は落ちる', () => assertFails(post(as('p6'), 'tA', 'p6', 'second')));
-await t('T4 2秒待てば通る', async () => { await sleep(2300); return assertSucceeds(post(as('p6'), 'tA', 'p6', 'third')); });
+await t('T4 1投稿目は通る', () => assertSucceeds(post(as('p6'), 'tLive', 'p6', 'first')));
+await t('T4 2秒以内の連投は落ちる', () => assertFails(post(as('p6'), 'tLive', 'p6', 'second')));
+await t('T4 2秒待てば通る', async () => { await sleep(2300); return assertSucceeds(post(as('p6'), 'tLive', 'p6', 'third')); });
 await t('T4 他人の posters は更新できない',
-  () => assertFails(setDoc(doc(as('p7'), 'events/ev1/tracks/tA/posters/p6'), { lastPostAt: serverTimestamp() })));
+  () => assertFails(setDoc(doc(as('p7'), 'events/ev1/tracks/tLive/posters/p6'), { lastPostAt: serverTimestamp() })));
 await t('T4 posters は読めない',
-  () => assertFails(getDoc(doc(as('p6'), 'events/ev1/tracks/tA/posters/p6'))));
+  () => assertFails(getDoc(doc(as('p6'), 'events/ev1/tracks/tLive/posters/p6'))));
 await t('T4 limit 50 の購読は通る',
   () => assertSucceeds(getDocs(query(collection(as('r1'), 'events/ev1/tracks/tA/comments'), limit(50)))));
 await t('T4 limit 51 の購読は落ちる',
@@ -221,6 +249,14 @@ await t('T4 トラック一覧は 50 まで通る',
 
 // --- 停止後 -------------------------------------------------------------
 await t('ST 停止済みトラックには投稿できない', () => assertFails(post(as('p8'), 'tStopped', 'p8', 'late')));
+await t('ST 開始前のトラックにも投稿できない', async () => {
+  await env.withSecurityRulesDisabled(async (ctx) => {
+    await setDoc(doc(ctx.firestore(), 'events/ev1/tracks/tIdle'), {
+      name: 'Track Idle', stopped: false, live: false,
+      sessionStartedAt: Timestamp.now(), createdAt: Timestamp.now() });
+  });
+  await assertFails(post(as('p9'), 'tIdle', 'p9', 'まだ'));
+});
 await t('ST 停止済みでも履歴は読める',
   () => assertSucceeds(getDocs(query(collection(as('r1'), 'events/ev1/tracks/tStopped/comments'), limit(50)))));
 

@@ -15,6 +15,8 @@ export function reasonText(kind, { over = 0, waitMs = 0 } = {}) {
     case 'too-long':  return `${MAX_TEXT}文字を超えています。あと${over}文字削ってください`;
     case 'cooldown':  return `送信しました。あと${Math.ceil(waitMs / 1000)}秒で次を送れます`;
     case 'stopped':   return 'この登壇は終わりました。次の登壇が始まると送れます';
+    // 止めたのは運営。登壇は続いているので「終わった」と言うと嘘になる。
+    case 'paused':    return 'いま運営が投稿を止めています。再開までお待ちください';
     case 'offline':   return 'つながっていません。電波を確かめてもう一度';
     default:          return '送れませんでした。少し待ってもう一度';
   }
@@ -53,8 +55,9 @@ export async function createPoster({ eventId, trackId, now = () => Date.now() } 
       return;
     }
     el('track').textContent = t.name;
-    // 停止中は演題ではなく状況を出す。再スキャンは要らないことを伝える。
-    el('title').textContent = (t.live && !t.stopped) ? '登壇中' : '次の登壇を待っています';
+    // 終わったのか、止まっているだけなのかで言い方を変える。
+    // 再スキャンは要らないことを伝える。
+    el('title').textContent = t.live ? '登壇中' : '次の登壇を待っています';
     refresh();
   }, () => { el('track').textContent = '読み取れません'; note(reasonText('denied'), 'bad'); });
 
@@ -83,6 +86,7 @@ export async function createPoster({ eventId, trackId, now = () => Date.now() } 
 
     if (over > 0) note(reasonText('too-long', { over }), 'bad');
     else if (track && !track.live) note(reasonText('stopped'), 'wait');
+    else if (track && track.stopped) note(reasonText('paused'), 'wait');
     else if (waitMs > 0) note(reasonText('cooldown', { waitMs }), 'ok');
   }
 

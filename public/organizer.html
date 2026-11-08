@@ -40,6 +40,8 @@
                     color: var(--good); }
   .btn.remove { color: var(--bad); border-color: transparent; background: transparent; padding: .4rem .5rem; }
   .btn.remove:hover { background: var(--bad-bg); }
+  .btn.stop { color: var(--bad); border-color: color-mix(in oklab, var(--bad) 45%, var(--line2)); }
+  .btn.resume { color: var(--good); border-color: color-mix(in oklab, var(--good) 45%, var(--line2)); }
 
   .foot { font-size: .8rem; color: var(--muted); margin-top: .6rem; }
   /* 消す操作は離して置く。非常停止の隣だと押し間違える。 */
@@ -154,11 +156,11 @@
         <th scope="col">トラック</th><th scope="col">受付</th>
         <th scope="col" style="text-align:right">届いた件数</th>
         <th scope="col">登壇者に渡す</th><th scope="col">観客に配る</th>
-        <th><span class="visually-hidden">削除</span></th>
+        <th scope="col">投稿</th><th><span class="visually-hidden">削除</span></th>
       </tr></thead>
       <tbody id="tracks"></tbody>
       <tfoot><tr>
-        <td colspan="6">
+        <td colspan="7">
           <div class="row">
             <span class="muted" style="font-size:.85rem">トラックを足す</span>
             <input id="newTrackName" maxlength="40" style="flex:0 1 16rem" autocomplete="off">

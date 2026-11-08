@@ -280,6 +280,20 @@ export async function createOrganizer({ eventId, random = () => Math.random() } 
         }));
       toAudience.append(audRow);
 
+      // 停止は運営だけの操作。荒らしへの対処なので、ここに置く。
+      const guard = cell(tr);
+      guard.className = 'link';
+      const trackBus = () => createBus(sdk, { db, eventId, trackId: t.id, uid });
+      guard.append(t.stopped
+        ? button('投稿を再開する', 'btn resume', async () => {
+            try { await trackBus().resume(); say(`${t.name} の投稿を再開しました`, 'ok'); }
+            catch (e) { fail(`再開できない: ${e.code ?? e.message}`); }
+          })
+        : button('投稿を止める', 'btn stop', async () => {
+            try { await trackBus().stop(); say(`${t.name} の投稿を止めました`, 'ok'); }
+            catch (e) { fail(`止められない: ${e.code ?? e.message}`); }
+          }));
+
       const del = cell(tr);
       del.append(button('削除', 'btn remove', async () => {
         if (!confirm(`${t.name} を削除します。届いたコメントは見られなくなります。`)) return;

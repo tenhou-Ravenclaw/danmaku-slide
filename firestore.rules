@@ -71,13 +71,18 @@ service cloud.firestore {
           return /databases/$(db)/documents/events/$(eventId)/tracks/$(trackId);
         }
 
-        // トラックは運営のもの。登壇者は引き継ぎコードで運用者になる。
-        function isTrackOperator() {
+        /** 運営。イベントの持ち主と、手伝う人。 */
+        function isEventStaff() {
           return authed() && (
             get(eventPath()).data.ownerUid == request.auth.uid ||
-            exists(/databases/$(db)/documents/events/$(eventId)/operators/$(request.auth.uid)) ||
-            exists(/databases/$(db)/documents/events/$(eventId)/tracks/$(trackId)/operators/$(request.auth.uid))
+            exists(/databases/$(db)/documents/events/$(eventId)/operators/$(request.auth.uid))
           );
+        }
+
+        /** そのトラックの登壇者。引き継ぎコードで登録された人。 */
+        function isTrackSpeaker() {
+          return authed() &&
+            exists(/databases/$(db)/documents/events/$(eventId)/tracks/$(trackId)/operators/$(request.auth.uid));
         }
 
         allow get: if authed();
@@ -96,13 +101,20 @@ service cloud.firestore {
           && request.resource.data.live == false
           && request.resource.data.createdAt == request.time;
 
-        // createdAt は後から書き換えられない。触れるのは運用4フィールドだけ。
-        allow update: if isTrackOperator()
-          && request.resource.data.createdAt == resource.data.createdAt
-          // 触れるのは運用の3つだけ。演題は持たない。
-          // セッションの切れ目は startSession が作るもので、演題とは関係がない。
-          && request.resource.data.diff(resource.data).affectedKeys()
-               .hasOnly(['sessionStartedAt','stopped','live']);
+        /*
+         * createdAt は後から書き換えられない。演題は持たない。
+         *
+         * 停止（stopped）は運営だけが触れる。荒らしへの対処なので、
+         * 運営が止めたものを登壇者が戻せてはいけない。
+         * 登壇者が触れるのは自分の登壇の開始と終了（sessionStartedAt と live）だけ。
+         */
+        allow update: if request.resource.data.createdAt == resource.data.createdAt && (
+          (isEventStaff() && request.resource.data.diff(resource.data).affectedKeys()
+             .hasOnly(['sessionStartedAt','stopped','live']))
+          ||
+          (isTrackSpeaker() && request.resource.data.diff(resource.data).affectedKeys()
+             .hasOnly(['sessionStartedAt','live']))
+        );
 
         allow delete: if signedIn() && get(eventPath()).data.ownerUid == request.auth.uid;
 
@@ -133,6 +145,9 @@ service cloud.firestore {
             && request.resource.data.text.size() > 0
             && request.resource.data.text.size() <= 60
             && request.resource.data.createdAt == request.time
+            // 登壇中でなければ受け付けない。
+            // 終了（live=false）と停止（stopped=true）は別の操作で、どちらでも止まる。
+            && get(trackPath()).data.live == true
             && get(trackPath()).data.stopped == false
             // 同じバッチで posters/{uid} も更新されていることを要求する = レート制限の強制
             && getAfter(/databases/$(db)/documents/events/$(eventId)/tracks/$(trackId)/posters/$(request.auth.uid))
