@@ -1,0 +1,11 @@
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          { "type": "command", "command": "/Users/tenhou/go/bin/gh-review-hook" }
+        ]
+      }
+    ]
+  }
+}

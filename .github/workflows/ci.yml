@@ -1,0 +1,85 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  rules:
+    name: Security Rules のテスト
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Firestore エミュレータをキャッシュする
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/firebase/emulators
+          key: firebase-emulators-${{ runner.os }}
+      - run: npm ci
+      - run: npx firebase --version
+      - run: npm run test:rules
+
+  guard:
+    name: Rules の不変条件と生成物のガード
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm run lint:rules
+
+  secrets:
+    name: 秘密情報スキャン
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: gitleaks を入れる
+        run: |
+          VER=8.30.1
+          curl -sSL -o /tmp/gitleaks.tar.gz \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${VER}/gitleaks_${VER}_linux_x64.tar.gz"
+          tar -xzf /tmp/gitleaks.tar.gz -C /tmp gitleaks
+          sudo install /tmp/gitleaks /usr/local/bin/gitleaks
+          gitleaks version
+      # 履歴を見る。一度コミットして消した鍵も検出対象。
+      # 現在のツリーについては lint:rules の「生成物が追跡されていない」が担保する。
+      - run: npm run lint:secrets
+
+  audit:
+    name: 依存の脆弱性
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      # 配信されるコードが使う依存は moderate すら許さない
+      - name: 本番依存（moderate 以上で落とす）
+        run: npm audit --omit=dev --audit-level=moderate
+      # 開発ツールは high 以上で落とす。firebase-tools 由来の moderate は受け入れている（CONTRIBUTING.md 参照）
+      - name: 開発依存（high 以上で落とす）
+        run: npm audit --audit-level=high

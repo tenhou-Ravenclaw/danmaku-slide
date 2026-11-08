@@ -1,0 +1,14 @@
+# gitleaks の設定。
+#
+# Firebase の Web API キー（AIza...）は本来ブラウザに配る公開値で、秘密ではない。
+# ただし「鍵に見える文字列をリポジトリに残さない」方針を採っているので、
+# 検出対象のまま残して、生成物として .gitignore 側で防ぐ。
+[extend]
+useDefault = true
+
+[allowlist]
+description = "生成物とロックファイルは対象外"
+paths = [
+  '''package-lock\.json''',
+  '''\.gitleaks\.toml''',
+]

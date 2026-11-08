@@ -5,6 +5,9 @@
   "scripts": {
     "config": "node scripts/gen-config.mjs",
     "dev": "firebase emulators:start",
+    "lint:rules": "node scripts/lint-rules.mjs",
+    "lint:secrets": "gitleaks git . --redact --verbose --no-banner",
+    "lint": "npm run lint:rules && npm run lint:secrets",
     "test:rules": "firebase emulators:exec --only firestore --project danmaku-slide-test 'node test/rules.test.mjs'",
     "test:e2e": "node test/e2e.mjs",
     "deploy:rules": "firebase deploy --only firestore:rules",
@@ -13,6 +16,10 @@
   },
   "devDependencies": {
     "@firebase/rules-unit-testing": "^6.0.0",
-    "firebase": "^13.2.0"
+    "firebase": "^13.2.0",
+    "firebase-tools": "^15.35.0"
+  },
+  "overrides": {
+    "@grpc/grpc-js": "^1.14.7"
   }
 }
