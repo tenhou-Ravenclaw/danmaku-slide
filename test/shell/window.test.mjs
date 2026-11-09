@@ -180,3 +180,23 @@ test('受け取ったリンクは貼らずにそのまま流し始められる',
   await setup.waitForFunction(
     () => document.body.dataset.running !== '1', { timeout: 10000 });
 });
+
+test('届いたリンクが違っていたら、手で貼る欄に戻せる', async () => {
+  // 運営が別のトラックのリンクを送ることがある。戻る道が無いと、
+  // アプリを閉じて開き直すしかなくなる（#66）。
+  await setup.waitForFunction(() => document.body.dataset.got === '1', { timeout: 5000 });
+  await setup.click('#redo');
+  await setup.waitForFunction(() => document.body.dataset.got !== '1', { timeout: 5000 });
+  assert.equal(await setup.isVisible('#track'), true, '貼る欄が戻っていない');
+  assert.equal(await setup.inputValue('#track'), '', '前の値が残っている');
+
+  // 受け取ったぶんは捨てる。残っていると、手で貼ったものが無視される。
+  await setup.fill('#track', 'b52bj39v b');
+  await setup.click('#go');
+  await setup.waitForFunction(
+    () => document.body.dataset.running === '1', { timeout: 10000 });
+  assert.match(await setup.textContent('#liveText'), /^b を/, '受け取ったぶんが残っている');
+  await setup.click('#halt');
+  await setup.waitForFunction(
+    () => document.body.dataset.running !== '1', { timeout: 10000 });
+});

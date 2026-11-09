@@ -42,6 +42,12 @@
   body[data-got="1"] .paste { display:none; }
   body[data-got="1"]:not([data-running="1"]) .got { display:block; }
   .got .say { margin:0 0 .5rem; color:var(--good); font-weight:700; }
+  /* 貼り直しは滅多に使わない。押せることは示すが、ボタンの形は与えない。
+     「スライドに流す」と並ぶと、どちらを押すのか迷う。 */
+  button.link { width:auto; margin-top:.5rem; padding:0; background:none; border:0;
+                color:var(--muted); font-weight:400; font-size:.78rem;
+                text-decoration:underline; }
+  button.link:hover { color:var(--ink); filter:none; }
   .kv { display:grid; grid-template-columns:auto 1fr; gap:.15rem .75rem; margin:0;
         padding:.6rem .75rem; border:1px solid var(--line); border-radius:.5rem;
         background:var(--surface); }
@@ -80,6 +86,9 @@
       <dt>イベント</dt><dd id="gotEvent"></dd>
       <dt>トラック</dt><dd id="gotTrack"></dd>
     </dl>
+    <!-- 違うトラックのリンクが届くことがある。貼り直す道が無いと、
+         アプリを閉じて開き直すしかなくなる。 -->
+    <button id="redo" class="link">違うリンクを貼る</button>
   </div>
 
   <div class="idle">
@@ -162,6 +171,16 @@
   });
 
   $('quit').addEventListener('click', () => window.shell.quit());
+
+  // 受け取ったものを捨てて、手で貼る欄に戻る。
+  // 届いたリンクが違うトラックだったとき、ここが無いと閉じて開き直すしかない。
+  $('redo').addEventListener('click', () => {
+    received = null;
+    document.body.dataset.got = '';
+    $('track').value = '';
+    msg('');
+    $('track').focus();
+  });
 
   $('go').addEventListener('click', go);
   $('track').addEventListener('keydown', (e) => { if (e.key === 'Enter') go(); });
