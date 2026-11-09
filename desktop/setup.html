@@ -49,23 +49,6 @@
   .kv dd { margin:0; font-size:.85rem;
            font-family:ui-monospace, SFMono-Regular, Menlo, "Courier New", monospace; }
 
-  /* クリックを下に通すかどうか。いまどちらなのかを、押す場所そのもので見せる。
-     キーでも切り替わるので、状態を文字でも書いておかないと確かめられない。 */
-  .sw { display:flex; align-items:center; justify-content:space-between; gap:.75rem;
-        margin:0; padding:.6rem .75rem; border:1px solid var(--line2); border-radius:.5rem;
-        background:var(--surface2); font-size:.85rem; color:var(--ink); cursor:pointer; }
-  .sw .what { font-weight:700; }
-  .sw .now { display:block; font-size:.75rem; font-weight:400; color:var(--muted); }
-  .sw input { appearance:none; flex:0 0 auto; width:2.6rem; height:1.5rem; margin:0; padding:0;
-        position:relative; border:0; border-radius:1rem; background:var(--line2);
-        cursor:pointer; transition:background .15s; }
-  .sw input::after { content:""; position:absolute; top:.19rem; left:.19rem;
-        width:1.12rem; height:1.12rem; border-radius:50%; background:var(--ink2);
-        transition:transform .15s, background .15s; }
-  .sw input:checked { background:var(--accent); }
-  .sw input:checked::after { transform:translateX(1.1rem); background:var(--accent-ink); }
-  .sw input:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
-
   .keys { margin:0; font-size:.75rem; color:var(--muted); line-height:1.9; }
   .keys a { color:var(--accent); }
   kbd { background:var(--surface2); border:1px solid var(--line2); border-bottom-width:2px;
@@ -76,7 +59,6 @@
   body[data-running="1"] .idle { display:none; }
   body[data-running="1"] .running { display:block; }
   body[data-running="1"] .live { display:flex; }
-  body[data-running="1"] .sw { display:flex; }
 </style>
 
 <body>
@@ -110,22 +92,13 @@
   <button id="go" class="idle">スライドに流す</button>
   <button id="halt" class="running ghost">流すのをやめる</button>
 
-  <label class="sw running" for="through">
-    <span>
-      <span class="what">クリックを下に通す</span>
-      <span class="now" id="throughNow">通している（弾幕の上からスライドを操作できる）</span>
-    </span>
-    <input type="checkbox" id="through" checked>
-  </label>
-
   <hr>
 
   <button id="quit" class="ghost">終了する</button>
 
   <p class="keys">
-    手が離せないときは、キーでも同じことができる。<br>
-    <kbd id="k1">⌘⇧C</kbd> クリックを下に通すかどうか<br>
-    <kbd id="k2">⌘⇧X</kbd> 終了する
+    スライドを全画面にすると、この窓は後ろに隠れる。<br>
+    <kbd id="k2">⌘⇧X</kbd> で、窓に手が届かなくても終われる。
   </p>
 
   <p class="keys idle">
@@ -142,10 +115,7 @@
   // 受け取っていれば貼る欄は出ていない。最初に触る場所をそれに合わせる。
   const focusFirst = () => (received ? $('go') : $('track')).focus();
 
-  if (!navigator.platform.startsWith('Mac')) {
-    $('k1').textContent = 'Ctrl+Shift+C';
-    $('k2').textContent = 'Ctrl+Shift+X';
-  }
+  if (!navigator.platform.startsWith('Mac')) $('k2').textContent = 'Ctrl+Shift+X';
 
   (async () => {
     const ds = await window.shell.displays();
@@ -191,19 +161,6 @@
     window.shell.openExternal(`${origin}/organizer.html`);
   });
 
-  // クリックを下に通すかどうかの持ち主は main。キーからも切り替わるので、
-  // 画面に出す値は必ず送られてきたものにする。ここで反転させると、キーで
-  // 切り替えたぶんがずれて、スイッチが実際と逆を指すようになる。
-  window.shell.onClickThrough?.((on) => {
-    // 届いた印を残す。既定の checked と見分けが付かないと、送る経路が
-    // 切れていても気づけない（test/shell/window.test.mjs がここを見る）。
-    document.body.dataset.through = on ? '1' : '0';
-    $('through').checked = on;
-    $('throughNow').textContent = on
-      ? '通している（弾幕の上からスライドを操作できる）'
-      : '通していない（弾幕のウィンドウがクリックを受け取る）';
-  });
-  $('through').addEventListener('change', (e) => window.shell.setClickThrough(e.target.checked));
   $('quit').addEventListener('click', () => window.shell.quit());
 
   $('go').addEventListener('click', go);

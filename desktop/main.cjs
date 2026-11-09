@@ -13,7 +13,6 @@ const ORIGIN = process.env.DANMAKU_ORIGIN ?? 'https://df-hackathon-2026.web.app'
 
 let setupWin = null;
 let overlayWin = null;
-let clickThrough = true;
 let pendingTrack = null;   // リンクから渡ってきたトラック
 
 function overlayUrl({ eventId, trackId }) {
@@ -76,8 +75,7 @@ function createSetupWindow() {
   });
   setupWin.loadFile(path.join(__dirname, 'setup.html'));
   setupWin.webContents.once('did-finish-load', () => {
-    // 読み込みの前に送っても届かない。開いた時点の現在値をここで渡す。
-    sendClickThrough();
+    // 読み込みの前に送っても届かない。開いた時点で渡す。
     if (pendingTrack) setupWin.webContents.send('track', pendingTrack);
   });
   setupWin.on('closed', () => { setupWin = null; });
@@ -168,7 +166,13 @@ function createOverlayWindow(track, display) {
   // 生成時の指定だけだと、macOS がメニューバーのぶん押し下げることがある。
   // 最前面のレベルを上げてから置き直すと、画面の端まで覆える。
   overlayWin.setBounds({ x, y, width, height });
-  overlayWin.setIgnoreMouseEvents(clickThrough, { forward: true });
+  // クリックは必ず下へ通す。切り替える口は置かない。
+  //
+  // この窓には押せるものが1つも無い（操作バーは透過のとき display:none）。
+  // 受け取るようにすると、画面全体を覆う窓が何もせずクリックを飲み込むだけで、
+  // スライドにも設定ウィンドウにも手が届かなくなる。
+  // forward は残す。将来この窓に出すものができたとき、hover が死んでいると困る。
+  overlayWin.setIgnoreMouseEvents(true, { forward: true });
   overlayWin.loadURL(overlayUrl(track));
   overlayWin.on('closed', () => { overlayWin = null; });
   return overlayWin;
@@ -188,36 +192,10 @@ function keepOnTop() {
   overlayWin.moveTop();
 }
 
-/**
- * クリックを下に通すかどうかを切り替える。
- *
- * 切り替える口がキーとスイッチの2つになるので、値は main に1つだけ置く。
- * 変えたら設定ウィンドウへ送り返す。送らないと、キーで切り替えたときに
- * 画面に出ている状態と実際が食い違う。
- */
-function setClickThrough(on) {
-  clickThrough = !!on;
-  overlayWin?.setIgnoreMouseEvents(clickThrough, { forward: true });
-  sendClickThrough();
-  return clickThrough;
-}
-
-/**
- * いまの値を設定ウィンドウへ渡す。
- * 送り先は設定ウィンドウだけ。透過ウィンドウはリモートの弾幕ページを読んでいて
- * preload を持たせていないので、受け口が無い。
- */
-function sendClickThrough() {
-  if (setupWin && !setupWin.isDestroyed()) {
-    setupWin.webContents.send('clickThrough', clickThrough);
-  }
-}
-
 function registerShortcuts() {
   const mod = process.platform === 'darwin' ? 'Command' : 'Control';
   // ボタンでも触れるが、キーは残す。登壇中は手が離せないことがある。
   globalShortcut.register(`${mod}+Shift+X`, () => app.quit());
-  globalShortcut.register(`${mod}+Shift+C`, () => setClickThrough(!clickThrough));
 }
 
 // 二重起動させない。リンクを開くたびに新しいアプリが立つと、重なりが二重になる。
@@ -255,7 +233,6 @@ app.whenReady().then(() => {
   });
 
   ipcMain.handle('stop', () => { overlayWin?.close(); setupWin?.show(); return { ok: true }; });
-  ipcMain.handle('clickThrough', (_e, on) => setClickThrough(on));
   ipcMain.handle('quit', () => { app.quit(); return { ok: true }; });
   ipcMain.handle('openExternal', (_e, url) => shell.openExternal(url));
   ipcMain.handle('origin', () => ORIGIN);

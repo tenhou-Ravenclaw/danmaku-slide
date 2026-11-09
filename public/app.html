@@ -110,8 +110,8 @@
       <p class="note" style="margin-top:.9rem">
         署名していないので、初回だけ macOS は右クリック→開く、
         Windows は「詳細情報」→「実行」が要ります。
-        流している間は <kbd id="k1">⌘⇧C</kbd> でクリックを下に通すかどうかを切り替え、
-        <kbd id="k2">⌘⇧X</kbd> で終了します。
+        弾幕の上からスライドはそのまま操作できます。
+        全画面にして窓に手が届かなくなったら、<kbd id="k2">⌘⇧X</kbd> で終了できます。
       </p>
     </div>
   </section>
@@ -163,9 +163,6 @@
     which.textContent = 'スマホからは入れられません。発表に使う機械で開いてください。';
   }
 
-  if (!mac) {
-    document.getElementById('k1').textContent = 'Ctrl+Shift+C';
-    document.getElementById('k2').textContent = 'Ctrl+Shift+X';
-  }
+  if (!mac) document.getElementById('k2').textContent = 'Ctrl+Shift+X';
 </script>
 </html>

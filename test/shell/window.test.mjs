@@ -118,21 +118,15 @@ test('画面が2枚以上あるときは投影先（メインでないほう）�
   assert.ok(!r.onPrimary, 'メイン画面に出している');
 });
 
-test('クリックを通すかどうかの現在値が main から届く', async () => {
-  // 値の持ち主は main で、キーからも切り替わる。届いていないと、スイッチが
-  // 実際と逆を指したまま誰も気づけない。data-through は届いた印。
-  await setup.waitForFunction(() => document.body.dataset.through !== undefined, { timeout: 5000 });
-  assert.equal(await setup.getAttribute('body', 'data-through'), '1', '既定は通す');
-  assert.ok(await setup.isChecked('#through'), 'スイッチが入っていない');
-});
-
-test('スイッチを切ると main を通って現在値が返ってくる', async () => {
-  await setup.uncheck('#through');
-  await setup.waitForFunction(() => document.body.dataset.through === '0', { timeout: 5000 });
-  assert.match(await setup.textContent('#throughNow'), /通していない/);
-  // 後の項目のために戻す
-  await setup.check('#through');
-  await setup.waitForFunction(() => document.body.dataset.through === '1', { timeout: 5000 });
+test('弾幕ウィンドウはクリックを必ず下へ通す', async () => {
+  // 切り替える口は置かない。この窓には押せるものが1つも無いので、
+  // 受け取るようにすると、何もせずクリックを飲み込むだけの板になる。
+  // スライドにも設定ウィンドウにも手が届かなくなる（旧 #65）。
+  const through = await app.evaluate(({ BrowserWindow }) =>
+    BrowserWindow.getAllWindows().filter((w) => w.isAlwaysOnTop()).length);
+  assert.ok(through > 0, '弾幕ウィンドウが無い');
+  assert.equal(await setup.evaluate(() => typeof window.shell.setClickThrough),
+    'undefined', '切り替える口が残っている');
 });
 
 test('終了する操作がボタンとして出ている', async () => {
@@ -142,13 +136,14 @@ test('終了する操作がボタンとして出ている', async () => {
   assert.ok(await setup.evaluate(() => typeof window.shell.quit === 'function'), '終了の口が無い');
 });
 
-test('終了と切り替えのキーが登録されている', async () => {
+test('終了のキーが登録されている', async () => {
+  // 全画面のスライドショー中は窓に手が届かない。そこからの逃げ道。
   const keys = await app.evaluate(({ globalShortcut }) => ({
-    mac: globalShortcut.isRegistered('Command+Shift+X') || globalShortcut.isRegistered('Control+Shift+X'),
-    toggle: globalShortcut.isRegistered('Command+Shift+C') || globalShortcut.isRegistered('Control+Shift+C'),
+    quit: globalShortcut.isRegistered('Command+Shift+X') || globalShortcut.isRegistered('Control+Shift+X'),
+    gone: globalShortcut.isRegistered('Command+Shift+C') || globalShortcut.isRegistered('Control+Shift+C'),
   }));
-  assert.ok(keys.mac, '終了のキーが無い');
-  assert.ok(keys.toggle, 'クリック透過の切り替えキーが無い');
+  assert.ok(keys.quit, '終了のキーが無い');
+  assert.ok(!keys.gone, '切り替えのキーが残っている');
 });
 
 test('やめると重ねるウィンドウが消えて設定に戻る', async () => {
