@@ -385,6 +385,42 @@ await t('消す操作は、当日に押す操作と同じ場所に無い', async
   await day.page.close(); await org.page.close();
 });
 
+await t('イベント詳細で受付を止めると、観客が投稿できなくなる', async () => {
+  // 配るのと開け閉めするのが運営のやること全部。両方が同じ面にあることを、
+  // 画面ではなく実際に投稿が弾かれるかどうかで確かめる。
+  const org = await makeLiveEvent('詳細で止める会', ['Track A']);
+  await org.page.waitForSelector('#tracks .btn.stop', { timeout: 25000 });
+  await org.page.click('#tracks .btn.stop');
+  await org.page.waitForSelector('#tracks .pill.bad', { timeout: 20000 });
+
+  const po = await actor();
+  let denied = false;
+  try { await busFor(po, org.eventId, 'a').post('止まったはず'); } catch { denied = true; }
+  assert(denied, '止めたのに投稿が通った');
+
+  // 戻せること。止めるのが戻せる操作であることが、赤くしない理由そのもの。
+  await org.page.click('#tracks .btn.resume');
+  await org.page.waitForSelector('#tracks .pill.good', { timeout: 20000 });
+  await org.page.close();
+});
+
+await t('イベント詳細のまとめ操作は、表から離れている', async () => {
+  // 1トラックだけ止めるつもりで全部止める事故は、距離でしか防げない。
+  const org = await makeLiveEvent('まとめの会', ['Track A', 'Track B']);
+  await org.page.waitForSelector('#evActs .btn.stopAll', { timeout: 25000 });
+  const sep = await org.page.evaluate(() => {
+    const acts = document.querySelector('#evActs .btn.stopAll').getBoundingClientRect();
+    const row = document.querySelector('#tracks tr .btn.stop').getBoundingClientRect();
+    return row.top - acts.bottom;
+  });
+  assert(sep > 20, `まとめ操作が行の操作に近すぎる: ${Math.round(sep)}px`);
+
+  await org.page.click('#evActs .btn.stopAll');
+  await org.page.waitForFunction(
+    () => document.querySelectorAll('#tracks .pill.bad').length === 2, { timeout: 20000 });
+  await org.page.close();
+});
+
 await t('今日ひらくイベントが無ければ「今日」を出さない', async () => {
   // 見出しだけ残すと、毎日ひらく画面の上端が「今日は何も無い」で埋まる。
   const org = await makeEventInBrowser('来年の会', ['Track A'], '2027-12-12');

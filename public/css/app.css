@@ -231,6 +231,10 @@ label.field > span { display: block; font-size: var(--t-xs); color: var(--muted)
 }
 .pill.bad::before { border-radius: 1px; }
 
+/* 受付の欄。いまの状態（pill）と、変える手（ボタン）を並べる。
+   pill は押せないので、「止める」と「削除」が隣り合う形にはならない。 */
+.guard { display: flex; align-items: center; gap: .5rem; }
+
 .mono { font-family: var(--mono); font-size: var(--t-sm); }
 .muted { color: var(--muted); }
 .hidden { display: none !important; }

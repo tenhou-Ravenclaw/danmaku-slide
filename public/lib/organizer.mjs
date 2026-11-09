@@ -370,6 +370,27 @@ export async function createOrganizer({ eventId, random = () => Math.random() } 
     }
   }
 
+  /**
+   * イベント単位のまとめ操作。トラックが1つも無いうちは出さない。
+   *
+   * 表の中ではなく見出しの行に置く。1トラックだけ止めるつもりで
+   * 全部止める事故は、距離でしか防げない。
+   */
+  function paintEventActs(eventId, rows) {
+    const acts = el('evActs');
+    acts.replaceChildren();
+    if (!rows.length) return;
+
+    const ev = { id: eventId, name: el('evName').textContent };
+    // 開けるのと止めるのは対になる操作。片方だけ目立たせると、
+    // 止めるほうが常に画面でいちばん強い要素になってしまう。
+    const openAll = button('全部で受け付ける', 'btn sm openAll',
+      () => setAll(ev, rows, 'open', openAll), `${ev.name} の全トラックで受け付ける`);
+    const stopAll = button('全部止める', 'btn sm caution stopAll',
+      () => setAll(ev, rows, 'close', stopAll), `${ev.name} の全トラックを止める`);
+    acts.append(openAll, stopAll);
+  }
+
   /** 受付中か、そうでないか。状態はこの2つだけ。 */
   function statePill(t) {
     const pill = document.createElement('span');
@@ -392,10 +413,11 @@ export async function createOrganizer({ eventId, random = () => Math.random() } 
         }, `${t.name} の投稿を受け付ける`);
   }
 
-  // --- イベント詳細（準備） ---------------------------------------------
+  // --- イベント詳細 -------------------------------------------------------
   //
-  // 受付の開け閉めはここに置かない。当日の面（一覧の「今日」）が持つ。
-  // 配り物を見にきた手が、そのまま受付を閉じられる場所にあってはいけない。
+  // 配るのと開け閉めするのが、運営のやること全部。両方ここにある。
+  // 分けていたころは「当日の操作をどっちのページに置くか」が問題だったが、
+  // 分けるのをやめたので問いごと消えた。
   async function detail(id) {
     el('detailView').classList.remove('hidden');
 
@@ -421,6 +443,9 @@ export async function createOrganizer({ eventId, random = () => Math.random() } 
       el('evName').textContent = ev.name;
       heldOn = ev.heldOn;
       paintMeta();
+      // まとめ操作の読み上げはイベント名を含む。トラックのほうが先に届くと
+      // 名前がまだ無いので、イベントが届いた時点で書き直す。
+      paintEventActs(id, tracks);
       // 打っている最中に上書きしない
       if (document.activeElement !== el('evNameInput')) el('evNameInput').value = ev.name ?? '';
       if (document.activeElement !== el('evDateInput')) el('evDateInput').value = ev.heldOn ?? '';
@@ -499,6 +524,7 @@ export async function createOrganizer({ eventId, random = () => Math.random() } 
   function paintTracks(eventId, rows) {
     const body = el('tracks');
     body.replaceChildren();
+    paintEventActs(eventId, rows);
     // 1つも無いときだけ、トラックが何なのかを出す。
     // 並んでいれば見れば分かるので、ずっと出しておく必要はない。
     el('noTracks').classList.toggle('hidden', rows.length > 0);
@@ -508,6 +534,12 @@ export async function createOrganizer({ eventId, random = () => Math.random() } 
       const name = cell(tr);
       name.style.fontWeight = '700';
       name.textContent = t.name;
+
+      // 受付。いまどうなっているか（pill）と、変える手（ボタン）を同じマスに置く。
+      // pill は押せないので、「止める」と「削除」が隣り合う形にはならない。
+      const guard = cell(tr);
+      guard.className = 'guard';
+      guard.append(statePill(t), guardButton(eventId, t));
 
       // 渡す相手ごとに分ける。取り違えると、観客に登壇者用の画面を配ることになる。
       const toSpeaker = cell(tr);

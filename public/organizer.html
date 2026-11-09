@@ -286,12 +286,16 @@
       <div class="lane-head">
         <h2>トラック</h2>
         <span class="hint">同時に進行する部屋ごとに1つ。部屋が1つなら Track A だけで足ります。</span>
+        <!-- まとめ操作は見出しの行に置く。表の中に混ぜると、1トラックだけ
+             止めるつもりで全部止めることになる。 -->
+        <span class="acts" id="evActs"></span>
       </div>
 
       <div class="card scroller"><table class="rows">
         <caption class="visually-hidden">トラックの一覧</caption>
         <thead><tr>
           <th scope="col">トラック</th>
+          <th scope="col">受付</th>
           <th scope="col">登壇者に渡す</th><th scope="col">観客に配る</th>
           <th scope="col"><span class="visually-hidden">削除</span></th>
         </tr></thead>

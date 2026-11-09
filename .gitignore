@@ -18,3 +18,4 @@ danmaku-slide-extension.zip
 .ext-test/
 .ext-diag/
 dist/
+.claude/worktrees/
