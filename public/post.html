@@ -55,12 +55,20 @@
      数字が 2 から 1 に変わるまでのあいだ、何も動かないと止まって見える。
      減るのではなく溜まる向きにする。満ちたら押せる、が一目で分かる。
 
-     動かすのは待っている間だけ。満ちたあとに帯が左へ縮んでいくと、
-     送れるようになったのか、何かが取り消されたのかが分からない。
-     待ちが終わった瞬間は遷移を持たないので、巻き戻しが見えずに消える。 */
+     帯の状態は3つ。伸びている／消えていく／何も無い。
+
+     伸びる動きと消える動きを同じ遷移に載せると、次に送ったとき、
+     満ちたままの帯が 0 へ戻るのが見えてしまう（一瞬左へ動く）。
+     消えるときは幅を動かさず、満ちたまま薄くする。縮めると取り消されたように見える。
+     「何も無い」には遷移を持たせない。幅を 0 に戻すのはここでやる。 */
   #sendFill { position: absolute; inset: 0; transform-origin: left; z-index: 0;
               transform: scaleX(var(--p, 0)); background: var(--good-bg); opacity: 0; }
-  #send[data-wait="1"] #sendFill { opacity: 1; transition: transform .2s linear; }
+  #send[data-wait="1"]    #sendFill { opacity: 1; transition: transform .2s linear; }
+  /* 消えていく間も、残りを前へ伸ばしきる。
+     前へ動くぶんには取り消されたようには見えないし、
+     止めると最後の一割が飛んで見える。 */
+  #send[data-wait="done"] #sendFill { opacity: 0;
+              transition: transform .2s linear, opacity .45s ease; }
   #sendLabel { position: relative; z-index: 1; }
 
   #note { min-height: 2.6rem; margin: 0; font-size: var(--t-sm); color: var(--muted); }

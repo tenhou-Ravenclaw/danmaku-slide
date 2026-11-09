@@ -84,14 +84,39 @@ export async function createPoster({ eventId, trackId, now = () => Date.now() } 
     el('sendLabel').textContent = waitMs > 0 ? `あと${Math.ceil(waitMs / 1000)}秒` : '送信';
     // 秒数が変わるまでの間も動かす。止まっていると壊れていると思われる。
     // 満ちるまでが待ち時間。溜まり切ったら押せる。
-    // 満ちたままにして、帯は遷移なしで消す（巻き戻しを見せない）。
-    el('send').dataset.wait = waitMs > 0 ? '1' : '';
-    el('send').style.setProperty('--p',
-      String(waitMs > 0 ? 1 - waitMs / COOLDOWN_MS : 1));
+    paintFill(waitMs);
 
     if (over > 0) note(reasonText('too-long', { over }), 'bad');
     else if (track && track.stopped) note(reasonText('stopped'), 'wait');
     else if (waitMs > 0) note(reasonText('cooldown', { waitMs }), 'ok');
+  }
+
+  /**
+   * ボタンの中の帯。伸びている／消えていく／何も無い の3つを行き来する。
+   *
+   * 伸ばす前に幅を 0 へ戻すが、その戻しは「何も無い」状態でやる。
+   * 「伸びている」状態で戻すと、満ちたままの帯が 0 へ動くのが見える。
+   */
+  let fill = '';
+  function paintFill(waitMs) {
+    const send = el('send');
+    if (waitMs > 0) {
+      if (fill !== '1') {
+        // 遷移を持たない状態に落としてから幅を戻す。
+        send.dataset.wait = '';
+        send.style.setProperty('--p', '0');
+        // ここで確定させないと、同じ描画の中で付け替わって戻りが動いて見える。
+        void send.offsetWidth;
+        send.dataset.wait = fill = '1';
+      }
+      send.style.setProperty('--p', String(1 - waitMs / COOLDOWN_MS));
+      return;
+    }
+    if (fill === '1') {
+      // 満ちた幅のまま薄くする。縮めると取り消されたように見える。
+      send.style.setProperty('--p', '1');
+      send.dataset.wait = fill = 'done';
+    }
   }
 
   /** クールダウン中は毎秒出し直す。無言で押せなくすると壊れていると思われる。 */
