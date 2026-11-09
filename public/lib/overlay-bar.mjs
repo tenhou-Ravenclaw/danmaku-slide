@@ -83,7 +83,7 @@ export function mountBar(overlay, { autoPick = false } = {}) {
     showBar();
   });
 
-  // コンソールから「スライドに重ねる」で来たときは、選択画面まで一気に出す
+  // コンソールから「スライドに流す」で来たときは、選択画面まで一気に出す
   if (autoPick) el('pick').click();
 
   return { showBar };

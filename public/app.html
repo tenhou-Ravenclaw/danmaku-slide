@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="ja">
 <meta charset="utf-8">
-<title>重ねるアプリを入手 · 弾幕スライド</title>
+<title>アプリを入手 · 弾幕スライド</title>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#0a0d13" media="(prefers-color-scheme: dark)">
@@ -42,14 +42,14 @@
 
 <main class="page stack">
   <div>
-    <h1>スライドに重ねる</h1>
+    <h1>スライドに流す</h1>
     <p class="say">弾幕を映すやり方は3つあります。使っているスライドツールで選んでください。</p>
   </div>
 
   <!-- 登壇者の画面から来たときだけ出す。いま使える道がここにある。 -->
   <section class="nowcard hidden" id="now">
     <div class="t">いますぐ試すなら、ブラウザだけで流せます</div>
-    <div class="s">何も入れずに使えます。投影する画面が1枚のときに向いています。</div>
+    <div class="s">入れるものなし。投影する画面が1枚のときに向いています。</div>
     <a class="btn primary" id="nowLink" href="#">この発表をブラウザで流す</a>
   </section>
 
@@ -62,14 +62,14 @@
       </tr></thead>
       <tbody>
         <tr>
-          <td class="w">重ねるアプリ<br><span class="s">既定</span></td>
-          <td>アプリの入手<div class="s">下からダウンロード</div></td>
+          <td class="w">アプリ<br><span class="s">既定</span></td>
+          <td>アプリを入手<div class="s">この下にあります</div></td>
           <td>スライドツールを問わない。
             <div class="s">透過したウィンドウを最前面に置くので、PowerPoint でも Keynote でも PDF でも同じように動きます。</div></td>
         </tr>
         <tr>
           <td class="w">ブラウザ</td>
-          <td>なし<div class="s">画面の共有を許可するだけ</div></td>
+          <td>入れるものなし<div class="s">画面の共有を許可します</div></td>
           <td>投影が1枚で、手元にノートを残したいとき。
             <div class="s">別の窓でスライドを取り込み、その上に弾幕を合成します。</div></td>
         </tr>
@@ -85,7 +85,7 @@
 
   <section class="lane">
     <div class="lane-head">
-      <h2>重ねるアプリ</h2>
+      <h2>アプリ</h2>
       <span class="hint" id="osHint">お使いの環境を調べています</span>
     </div>
     <div class="card" style="padding:1.1rem">
@@ -95,7 +95,7 @@
           ダウンロードページを開く</a>
         <p class="note" id="which">配布ページから、お使いの環境のファイルを選んでください。</p>
         <p class="note">
-          入れている余裕が無いときは「ブラウザ」で流せます。何も入れずに使えます。
+          入れている余裕が無いときは「ブラウザ」で流せます。入れるものはありません。
         </p>
       </div>
 
@@ -103,14 +103,14 @@
       <ol class="steps">
         <li>ダウンロードした zip を展開して、アプリを開きます。</li>
         <li>運営から届いた登壇用リンクを貼り付けます。</li>
-        <li>「スライドに重ねる」を押すと、透過したウィンドウが最前面に出ます。</li>
+        <li>「スライドに流す」を押すと、透過したウィンドウが最前面に出ます。</li>
         <li>スライドを全画面にしても、弾幕はその上に残ります。</li>
       </ol>
 
       <p class="note" style="margin-top:.9rem">
         署名していないので、初回だけ macOS は右クリック→開く、
         Windows は「詳細情報」→「実行」が要ります。
-        重ねている間は <kbd id="k1">⌘⇧C</kbd> でクリックを下に通すかどうかを切り替え、
+        流している間は <kbd id="k1">⌘⇧C</kbd> でクリックを下に通すかどうかを切り替え、
         <kbd id="k2">⌘⇧X</kbd> で終了します。
       </p>
     </div>
