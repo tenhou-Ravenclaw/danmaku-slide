@@ -175,6 +175,31 @@ await t('HO 運営を手伝う人は投稿を開けられる',
 await t('HO 手伝う人でも匿名ではイベント名を変えられない',
   () => assertFails(updateDoc(doc(as('helper'), 'events/ev1'), { name: '手伝いから' })));
 
+// --- JN: 入ったイベントの控え -------------------------------------------
+//
+// 一覧は events を ownerUid で引くので、手伝う人のイベントが出てこない。
+// Firestore は OR 検索ができないので、入った時点で自分の下に控えを置く。
+await t('JN 自分の控えは置ける',
+  () => assertSucceeds(setDoc(doc(as('helper'), 'users/helper/joined/ev1'), { at: Timestamp.now() })));
+await t('JN 自分の控えは読める',
+  () => assertSucceeds(getDoc(doc(as('helper'), 'users/helper/joined/ev1'))));
+await t('JN 他人の控えは読めない（どのイベントに関わっているかは本人だけのもの）',
+  () => assertFails(getDoc(doc(as('attacker'), 'users/helper/joined/ev1'))));
+await t('JN 他人の控えには書けない（勝手に一覧へ差し込めない）',
+  () => assertFails(setDoc(doc(as('attacker'), 'users/helper/joined/ev9'), { at: Timestamp.now() })));
+await t('JN サインインしていなければ置けない（匿名ですらない）',
+  () => assertFails(setDoc(doc(anon(), 'users/anon/joined/ev1'), { at: Timestamp.now() })));
+
+// 控えを置けても、それだけでは何の権限も付かない。権限は operators 側が決める。
+await t('JN 控えだけでは投稿を止められない',
+  () => assertFails(updateDoc(doc(as('outsider'), 'events/ev1/tracks/tA'), { stopped: true })));
+
+// --- JN: 抜ける ---------------------------------------------------------
+await t('JN 他人を運営から外せない',
+  () => assertFails(deleteDoc(doc(as('attacker'), 'events/ev1/operators/helper'))));
+await t('JN 自分は運営から抜けられる',
+  () => assertSucceeds(deleteDoc(doc(as('helper'), 'events/ev1/operators/helper'))));
+
 // 投稿のテストは専用のトラックでやる。
 // 他のテストが tA を止めると、ここが巻き添えで落ちる。
 await env.withSecurityRulesDisabled(async (ctx) => {

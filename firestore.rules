@@ -62,7 +62,10 @@ service cloud.firestore {
           && request.resource.data.keys().hasOnly(['code'])
           && request.resource.data.code ==
                get(/databases/$(db)/documents/events/$(eventId)/private/handoff).data.code;
-        allow update, delete: if false;
+        allow update: if false;
+        // 自分の分だけ消せる。入り口だけあって出口が無いと、間違って入った人が
+        // そのイベントを一覧から外せなくなる。他人は外せない。
+        allow delete: if authed() && uid == request.auth.uid;
       }
 
       match /tracks/{trackId} {
@@ -149,6 +152,20 @@ service cloud.firestore {
           allow delete: if false;
         }
       }
+    }
+
+    /**
+     * その人が入ったイベントの控え。
+     *
+     * 一覧は events を ownerUid で引いているので、手伝う人のイベントが出てこない。
+     * Firestore は「作った or 手伝っている」を1回の問い合わせで引けないので、
+     * 入った時点でこちらに控えを置き、一覧はこれを読んでから events を引く。
+     *
+     * operators を直接引く道は採らない。あれは allow read: if false なので、
+     * 引けるようにすると引き継ぎコードの漏れ口になる。
+     */
+    match /users/{uid}/joined/{eventId} {
+      allow read, write: if authed() && uid == request.auth.uid;
     }
   }
 }

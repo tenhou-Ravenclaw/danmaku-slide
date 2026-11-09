@@ -50,6 +50,98 @@ export function createEventBus(sdk, { db, uid }) {
       }, onError);
     },
 
+    /**
+     * 自分が関わっているイベントを購読する。作ったものと、手伝っているもの。
+     *
+     * Firestore は「作った or 手伝っている」を1回の問い合わせで引けない。
+     * 作ったぶんは events を ownerUid で引き、手伝っているぶんは
+     * users/{uid}/joined の控えから1件ずつ引いて合流させる。
+     *
+     * operators を直接引く道は採らない。あれは allow read: if false なので、
+     * 引けるようにすると引き継ぎコードの漏れ口になる。
+     */
+    watchVisibleEvents(onEvents, onError) {
+      const mine = new Map();     // 作ったもの
+      const joined = new Map();   // 手伝っているもの
+      const stops = new Map();    // eventId → そのイベントの購読を止める関数
+      let ready = false;          // 作ったぶんが一度届くまで、合流を出さない
+
+      const emit = () => {
+        if (!ready) return;
+        // 同じイベントが両方に入ることはないが、入っても作った側を優先する。
+        const all = new Map([...joined, ...mine]);
+        onEvents([...all.values()]);
+      };
+
+      const stopMine = onSnapshot(
+        query(collection(db, 'events'),
+          where('ownerUid', '==', uid), orderBy('createdAt', 'desc'), limit(PAGE)),
+        (snap) => {
+          mine.clear();
+          for (const d of snap.docs) mine.set(d.id, { id: d.id, ...d.data(), mine: true });
+          ready = true;
+          emit();
+        }, onError);
+
+      const stopJoined = onSnapshot(
+        query(collection(db, 'users', uid, 'joined'), limit(PAGE)),
+        (snap) => {
+          const want = new Set(snap.docs.map((d) => d.id));
+          for (const [id, stop] of stops) {
+            if (want.has(id)) continue;
+            stop(); stops.delete(id); joined.delete(id);
+          }
+          for (const id of want) {
+            if (stops.has(id)) continue;
+            // 控えは名前を持たない。持たせると、作った人が直したときに古いまま残る。
+            stops.set(id, onSnapshot(doc(db, 'events', id), (d) => {
+              if (d.exists()) joined.set(id, { id: d.id, ...d.data(), mine: false });
+              // 消えたイベントは出さない。控えだけが残ることがある。
+              else joined.delete(id);
+              emit();
+            }, onError));
+          }
+          emit();
+        }, onError);
+
+      return () => {
+        stopMine?.(); stopJoined?.();
+        for (const stop of stops.values()) stop();
+        stops.clear();
+      };
+    },
+
+    /**
+     * 招待コードを作り直して返す。
+     *
+     * コードは allow read: if false で、作った人でさえ読み出せない。
+     * 配るには新しく発行するしかなく、そのぶん前に配ったリンクは通らなくなる。
+     * 取り消しが副産物として手に入る。
+     */
+    async rotateHandoff(eventId, code) {
+      await setDoc(doc(db, 'events', eventId, 'private', 'handoff'), { code });
+      return code;
+    },
+
+    /**
+     * そのイベントを手伝う側に回る。
+     *
+     * operators は自分の分しか作れない（Rules が uid を見ている）。
+     * コードが違えば、ここで弾かれる。
+     * 控えは operators が通ってから置く。順を逆にすると、入れていないのに
+     * 一覧に出るイベントができる。
+     */
+    async joinEvent(eventId, code) {
+      await setDoc(doc(db, 'events', eventId, 'operators', uid), { code });
+      await setDoc(doc(db, 'users', uid, 'joined', eventId), { at: serverTimestamp() });
+    },
+
+    /** 手伝うのをやめる。自分の分だけ消せる。 */
+    async leaveEvent(eventId) {
+      await deleteDoc(doc(db, 'users', uid, 'joined', eventId));
+      await deleteDoc(doc(db, 'events', eventId, 'operators', uid));
+    },
+
     createEvent(eventId, { name, heldOn = '' }) {
       return setDoc(doc(db, 'events', eventId), {
         name, heldOn, ownerUid: uid, createdAt: serverTimestamp(),

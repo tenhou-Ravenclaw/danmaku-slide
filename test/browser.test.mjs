@@ -86,6 +86,18 @@ const drawnPixels = (page) => page.evaluate(() => {
  * 運営としてサインインする。匿名では作れない（Rules で拒んでいる）。
  * 同じブラウザの2枚目以降はセッションが復元されるので、門は出ない。
  */
+/**
+ * 招待リンクから来た別の運営としてサインインする。
+ *
+ * signInAsOrganizer は作る画面（#newEventName）を待つが、招待リンクの先は
+ * 入るかどうかを聞く面なので、その欄は出てこない。待つ先が違う。
+ */
+async function signInAsHelper(page) {
+  await page.waitForSelector('#signIn', { state: 'visible', timeout: 25000 });
+  await page.click('#signIn');
+  await page.waitForSelector('#joinView:not(.hidden)', { timeout: 25000 });
+}
+
 async function signInAsOrganizer(page) {
   await page.waitForFunction(() =>
     document.querySelector('#signIn')?.offsetParent !== null ||
@@ -531,6 +543,82 @@ await t('イベントが1本も無ければ、作る画面が出る', async () =
   assert(await r.page.isVisible('#newEventName'), '作る画面が出ない');
   assert(new URL(r.page.url()).searchParams.get('e') === null, r.page.url());
   await r.page.close();
+});
+
+await t('招いた人がイベントを手伝え、一覧にも出る', async () => {
+  // ひとりで運営する前提は成り立たない。当日の受付を誰にも任せられないと、
+  // 作った人が席を外せなくなる。
+  const org = await makeLiveEvent('共同運営の会', ['Track A']);
+  await org.page.waitForSelector('#share', { timeout: 25000 });
+
+  // 招く側。押すたびにコードを作り直すので、リンクはその場で決まる。
+  await org.page.click('#share');
+  await org.page.waitForSelector('#inviteBox:not(.hidden)', { timeout: 20000 });
+  const invite = await org.page.textContent('#inviteUrl');
+  assert(/join=[A-Z0-9]{8}/.test(invite), `招待リンクの形が違う: ${invite}`);
+
+  // 別の運営として開く。別の ctx なので別人になる。
+  const helper = await open(invite.replace(/^https?:\/\/[^/]+/, HOST));
+  await signInAsHelper(helper.page);
+  assert(/共同運営の会/.test(await helper.page.textContent('#joinName')),
+    await helper.page.textContent('#joinName'));
+  await helper.page.click('#joinGo');
+
+  // 入ると、そのイベントの面に移る
+  await helper.page.waitForFunction((id) =>
+    new URL(location.href).searchParams.get('e') === id && !new URL(location.href).searchParams.get('join'),
+  org.eventId, { timeout: 25000 });
+  await helper.page.waitForSelector('#tracks .pill', { timeout: 25000 });
+
+  // 当日いちばん要るもの。受付を止められる。
+  await helper.page.click('#tracks .btn.stop');
+  await helper.page.waitForSelector('#tracks .pill.bad', { timeout: 20000 });
+  const po = await actor();
+  let denied = false;
+  try { await busFor(po, org.eventId, 'a').post('止まったはず'); } catch { denied = true; }
+  assert(denied, '手伝う人が止めたのに投稿が通った');
+
+  // 壊せる操作は出さない。Rules が弾くが、押せる形で見せると壊れていると読まれる。
+  assert(!await helper.page.isVisible('#deleteEvent'), '手伝う人にイベントの削除が出ている');
+  assert(!await helper.page.isVisible('#share'), '手伝う人に招待が出ている');
+  // display:none でも count には出るので、見えているかで測る。
+  const shown = await helper.page.evaluate(() =>
+    [...document.querySelectorAll('#tracks .btn.remove')].filter((b) => b.offsetParent !== null).length);
+  assert(shown === 0, `手伝う人にトラックの削除が ${shown} 個出ている`);
+  assert(!await helper.page.isVisible('#addTrackRow'), '手伝う人にトラックの追加が出ている');
+  assert(await helper.page.isVisible('#leaveEvent'), '手伝うのをやめる道が無い');
+
+  // 一覧にも出る。出ないと、当日ブックマークを探すことになる。
+  const list = await open(`${HOST}/organizer.html?new=1&emu=1`, { ctx: helper.page.context() });
+  await list.page.waitForFunction(
+    () => document.getElementById('tabs')?.textContent.includes('共同運営の会'), { timeout: 25000 });
+
+  await list.page.close(); await helper.page.close(); await org.page.close();
+});
+
+await t('前に配った招待リンクは、作り直すと使えなくなる', async () => {
+  // コードは誰も読み出せないので、配るには作り直すしかない。
+  // 前のリンクが通らなくなるのは副作用ではなく、取り消しの手段。
+  const org = await makeLiveEvent('作り直しの会', ['Track A']);
+  await org.page.waitForSelector('#share', { timeout: 25000 });
+  await org.page.click('#share');
+  await org.page.waitForSelector('#inviteBox:not(.hidden)', { timeout: 20000 });
+  const first = await org.page.textContent('#inviteUrl');
+
+  await org.page.click('#share');
+  await org.page.waitForFunction((was) =>
+    document.getElementById('inviteUrl').textContent !== was, first, { timeout: 20000 });
+  const second = await org.page.textContent('#inviteUrl');
+  assert(first !== second, '作り直しても同じリンクのまま');
+
+  const stale = await open(first.replace(/^https?:\/\/[^/]+/, HOST));
+  await signInAsHelper(stale.page);
+  await stale.page.click('#joinGo');
+  await stale.page.waitForFunction(
+    () => /使えません/.test(document.getElementById('msg')?.textContent ?? ''), { timeout: 20000 });
+  assert(new URL(stale.page.url()).searchParams.get('join') !== null, '古いリンクで入れてしまった');
+
+  await stale.page.close(); await org.page.close();
 });
 
 await t('終わったイベントはタブに並ばない', async () => {

@@ -21,7 +21,8 @@ const todayIso = () => new Date().toISOString().slice(0, 10);
 /** 受付中か。stopped が無いものも受付中として扱う（作った直後がこれ）。 */
 const isOpen = (t) => t.stopped !== true;
 
-export async function createOrganizer({ eventId, wantNew = false, random = () => Math.random() } = {}) {
+export async function createOrganizer({ eventId, wantNew = false, joinCode = null,
+  random = () => Math.random() } = {}) {
   const el = (id) => document.getElementById(id);
   const msg = el('msg');
 
@@ -105,7 +106,8 @@ export async function createOrganizer({ eventId, wantNew = false, random = () =>
     events = createEventBus(sdk, { db, uid });
     el('tabBar').classList.remove('hidden');
     tabs();
-    if (eventId) detail(eventId);
+    if (eventId && joinCode) join(eventId, joinCode);
+    else if (eventId) detail(eventId);
     else if (wantNew) create();
     else openNearest();
   });
@@ -143,7 +145,7 @@ export async function createOrganizer({ eventId, wantNew = false, random = () =>
 
     el('showPast').addEventListener('click', () => { showPast = !showPast; paint(); });
 
-    const unwatch = events.watchMyEvents((next) => { rows = next; paint(); },
+    const unwatch = events.watchVisibleEvents((next) => { rows = next; paint(); },
       (e) => fail(`イベントを読めない: ${e.code ?? e.message}`));
 
     return { kind: 'tabs', stop: () => unwatch?.() };
@@ -188,7 +190,7 @@ export async function createOrganizer({ eventId, wantNew = false, random = () =>
     // そのまま `unwatch?.()` を書くと、1回目だけ止め損ねて二重に走る。
     let done = false;
     let unwatch = null;
-    unwatch = events.watchMyEvents((rows) => {
+    unwatch = events.watchVisibleEvents((rows) => {
       if (done) return;
       done = true;
       unwatch?.();
@@ -208,6 +210,35 @@ export async function createOrganizer({ eventId, wantNew = false, random = () =>
   function nearestEvent(rows) {
     const { upcoming, past } = splitByDate(rows);
     return upcoming[0] ?? past[0] ?? null;
+  }
+
+  // --- 手伝う側に回る ---------------------------------------------------
+  //
+  // 招待リンクから来た人の面。入るかどうかだけ聞く。
+  // 黙って入れない。自分の一覧に知らないイベントが増えるのは気味が悪い。
+  function join(id, code) {
+    el('joinView').classList.remove('hidden');
+
+    // 名前は先に出す。何を手伝うのか分からないまま押させない。
+    events.watchEvent(id, (ev) => {
+      if (!ev) { fail(`イベントが見つからない: ${id}`); return; }
+      el('joinName').textContent = [ev.name, formatDate(ev.heldOn)].filter(Boolean).join(' · ');
+    }, (e) => fail(`読めない: ${e.code ?? e.message}`));
+
+    el('joinGo').addEventListener('click', async () => {
+      el('joinGo').disabled = true;
+      try {
+        await events.joinEvent(id, code);
+        location.replace(withEnv(`./organizer.html?e=${encodeURIComponent(id)}`));
+      } catch (e) {
+        // コードが違えば Rules が弾く。リンクが古いか、作り直されたか。
+        fail(e?.code === 'permission-denied'
+          ? 'このリンクは使えません。運営に新しいリンクをもらってください'
+          : `手伝えない: ${e.code ?? e.message}`);
+        el('joinGo').disabled = false;
+      }
+    });
+    return { kind: 'join', eventId: id };
   }
 
   // --- イベントを作る ---------------------------------------------------
@@ -350,6 +381,8 @@ export async function createOrganizer({ eventId, wantNew = false, random = () =>
     events.watchEvent(id, (ev) => {
       if (!ev) { fail(`イベントが見つからない: ${id}`); return; }
       el('evName').textContent = ev.name;
+      // 作った人かどうかで、見せる操作が変わる。消す・足す・招くは作った人だけ。
+      document.body.dataset.owner = ev.ownerUid === uid ? '1' : '0';
       heldOn = ev.heldOn;
       paintMeta();
       // まとめ操作の読み上げはイベント名を含む。トラックのほうが先に届くと
@@ -412,6 +445,41 @@ export async function createOrganizer({ eventId, wantNew = false, random = () =>
     el('addTrack').addEventListener('click', () => addTrack(id, tracks));
 
     el('copyEvUrl').addEventListener('click', () => copy(eventUrlFor(id)));
+
+    // 手伝う人を招く。押すたびにコードを作り直す。
+    //
+    // コードは allow read: if false で、作った人でさえ読み出せない。
+    // 配るには新しく発行するしかない。前のリンクが通らなくなるのは
+    // 副作用ではなく、取り消しの手段としてそのまま使える。
+    el('share').addEventListener('click', async () => {
+      el('share').disabled = true;
+      try {
+        const code = await events.rotateHandoff(id, newHandoffCode(random));
+        const url = new URL(withEnv(`./organizer.html?e=${encodeURIComponent(id)}`), location.href);
+        url.searchParams.set('join', code);
+        el('inviteUrl').textContent = url.toString();
+        el('inviteBox').classList.remove('hidden');
+        el('copyInvite').focus();
+      } catch (e) {
+        fail(e?.code === 'permission-denied'
+          ? '招けるのは、このイベントを作った人だけです'
+          : `招待リンクを作れない: ${e.code ?? e.message}`);
+      } finally { el('share').disabled = false; }
+    });
+    el('copyInvite').addEventListener('click', () => copy(el('inviteUrl').textContent));
+
+    // 手伝うのをやめる。消すのではなく、自分が外れるだけ。
+    el('leaveEvent').addEventListener('click', async () => {
+      if (!confirm('このイベントを手伝うのをやめます。\nあなたの一覧から外れますが、イベントは消えません。')) return;
+      el('leaveEvent').disabled = true;
+      try {
+        await events.leaveEvent(id);
+        location.href = withEnv('./organizer.html');
+      } catch (e) {
+        fail(`やめられない: ${e.code ?? e.message}`);
+        el('leaveEvent').disabled = false;
+      }
+    });
     // QR は押したときに作る。画面に置いておく理由が無い。読むのは観客で、
     // 運営がこの絵から読めることは何も無い。
     el('copyEvQr').addEventListener('click', () => copyQr(eventUrlFor(id), el('evName').textContent));
