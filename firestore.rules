@@ -94,14 +94,26 @@ service cloud.firestore {
           && request.resource.data.createdAt == request.time;
 
         /*
-         * 変えられるのは受付の可否（stopped）だけ。名前も createdAt も動かない。
+         * 変えられるのは受付の可否（stopped）と名前（name）だけ。createdAt は動かない。
+         *
+         * 名前を止めていたのは「動かす面を最小にする」ためで、QR の約束とは別だった。
+         * 配るQRとリンクは trackId だけで出来ていて name を含まないので、
+         * 名前が動いても配ったものはそのまま生きる。打ち間違えたトラックを
+         * 消して作り直させるほうが、配り直しを招いて危ない。
+         * （刷った紙に載った名前だけは古いまま残る。刷り直すかは運営の判断。）
+         *
+         * 形は作るときと同じものを要求する。name は常に文書にあるので、
+         * 今回の更新で触ったかどうかに関わらず、結果の形だけを見れば足りる。
          *
          * 触れるのは運営だけ。登壇の開始と終了はこの道具の仕事ではないので、
          * 登壇者には書き込む先がひとつも無い。渡すリンクも合言葉を持たない。
          */
         allow update: if isEventStaff()
           && request.resource.data.createdAt == resource.data.createdAt
-          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['stopped']);
+          && request.resource.data.name is string
+          && request.resource.data.name.size() > 0
+          && request.resource.data.name.size() <= 40
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['stopped','name']);
 
         allow delete: if signedIn() && get(eventPath()).data.ownerUid == request.auth.uid;
 
