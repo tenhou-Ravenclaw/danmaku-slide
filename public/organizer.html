@@ -118,6 +118,22 @@
   /* 消す列だけ少し離す。隣はリンクを配る操作で、こちらは戻せない。 */
   #tracks td:last-child, .rows thead th:last-child { padding-left: 1.4rem; }
 
+  /* トラック名は押すと入力欄になる。入力欄を出したままにはしない。
+     配り物のボタンを探す手が、名前の欄に当たって打ち換えてしまう。
+     ボタンに見せないのも同じ理由で、押すと何かが起きる物だと思われると
+     「リンクをコピー」と並んで迷う。文字のまま、押せることだけ hover で出す。
+     押す前と入力中で幅が変わらないよう、余白は負の margin で打ち消す。 */
+  #tracks .rename, #tracks .renaming {
+    font: inherit; font-weight: 700; color: var(--ink); text-align: left;
+    padding: .15rem .35rem; margin: -.15rem -.35rem;
+    border: 1px solid transparent; border-radius: var(--radius-sm);
+    background: transparent;
+  }
+  #tracks .rename { cursor: text; }
+  #tracks .rename:hover { border-color: var(--line); }
+  #tracks .renaming { width: 9rem; max-width: 100%; cursor: auto; }
+  #tracks .renaming:focus { background: var(--surface); border-color: var(--line2); }
+
   /* --- 当日 --------------------------------------------------------- */
   /* イベントごとの塊。見出し行に「全部」の操作を置く。
      日付全体に効かせない。同じ日に2つ走っていると、片方の運営の
@@ -316,6 +332,10 @@
       </p>
       <p class="foot">
         トラックのURLは当日中変わりません。登壇者が代わってもQRは貼り替え不要です。<br>
+        <!-- 名前を直せることと、直しても配り直さなくていいことを同じ行で言う。
+             別の行にすると、直せると知った人が「配ったQRは？」で止まる。
+             刷った紙だけは追従しないので、そこは隠さずに書く。 -->
+        トラック名は押すとその場で直せます。URLは変わらないので配ったQRとリンクはそのまま使えますが、<strong>すでに刷った紙の名前は古いまま</strong>です。刷り直すかは運営の判断で。<br>
         <strong>登壇者に渡す</strong>リンクは、そのトラックの画面を開くだけのもの。合言葉は付かず、登壇者が投稿を止めたり開けたりすることはできません。<br>
         <strong>観客に配る</strong>QRは部屋の入口用。チラシには上のイベント全体のQRを使います。<br>
         受付の開け閉めは<a href="./organizer.html">イベント一覧</a>の「今日」から。当日その場で押す操作なので、配り物とは別の面にしています。

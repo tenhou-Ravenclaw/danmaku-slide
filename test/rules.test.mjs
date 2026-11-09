@@ -103,8 +103,33 @@ await t('TR live を足せない（登壇の開始・終了はこの道具の仕
   () => assertFails(updateDoc(doc(asStaff('staff'), 'events/ev1/tracks/tA'), { live: true })));
 await t('TR createdAt は書き換えられない',
   () => assertFails(updateDoc(doc(asStaff('staff'), 'events/ev1/tracks/tA'), { createdAt: serverTimestamp() })));
-await t('TR 名前は後から変えられない',
-  () => assertFails(updateDoc(doc(asStaff('staff'), 'events/ev1/tracks/tA'), { name: 'Track ZZ' })));
+// 名前は後から直せる（#61）。配るQRとリンクは trackId だけで出来ているので、
+// 名前が動いても配ったものは生きる。形は作るときと同じものを要求する。
+// 直す先は専用のトラックでやる。tA の名前を動かすと、他のテストが巻き添えで読みにくくなる。
+await t('TR 運営は名前を後から変えられる', async () => {
+  await assertSucceeds(setDoc(doc(asStaff('staff'), 'events/ev1/tracks/tRen'), {
+    name: 'Track R', stopped: false, createdAt: serverTimestamp() }));
+  await assertSucceeds(updateDoc(doc(asStaff('staff'), 'events/ev1/tracks/tRen'), { name: '2F ホール' }));
+});
+await t('TR 名前と受付の可否は同時に変えられる',
+  () => assertSucceeds(updateDoc(doc(asStaff('staff'), 'events/ev1/tracks/tRen'),
+    { name: '2F ホール（後半）', stopped: true })));
+await t('TR 40文字の名前には変えられる',
+  () => assertSucceeds(updateDoc(doc(asStaff('staff'), 'events/ev1/tracks/tRen'), { name: 'あ'.repeat(40) })));
+await t('TR 空の名前には変えられない',
+  () => assertFails(updateDoc(doc(asStaff('staff'), 'events/ev1/tracks/tRen'), { name: '' })));
+await t('TR 41文字の名前には変えられない',
+  () => assertFails(updateDoc(doc(asStaff('staff'), 'events/ev1/tracks/tRen'), { name: 'あ'.repeat(41) })));
+await t('TR 文字列でない名前には変えられない',
+  () => assertFails(updateDoc(doc(asStaff('staff'), 'events/ev1/tracks/tRen'), { name: 42 })));
+await t('TR 運営以外は名前を変えられない',
+  () => assertFails(updateDoc(doc(asStaff('attacker'), 'events/ev1/tracks/tRen'), { name: 'のっとり' })));
+await t('TR 名前を変えるついでに createdAt は動かせない',
+  () => assertFails(updateDoc(doc(asStaff('staff'), 'events/ev1/tracks/tRen'),
+    { name: 'Track R2', createdAt: serverTimestamp() })));
+await t('TR 名前を変えるついでに別のフィールドは混ぜられない',
+  () => assertFails(updateDoc(doc(asStaff('staff'), 'events/ev1/tracks/tRen'),
+    { name: 'Track R3', title: 'はじめてのLT' })));
 await t('TR 他人はトラックを消せない',
   () => assertFails(deleteDoc(doc(asStaff('attacker'), 'events/ev1/tracks/tA'))));
 

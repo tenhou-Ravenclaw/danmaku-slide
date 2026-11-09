@@ -76,6 +76,16 @@ export async function createOrganizer({ eventId, random = () => Math.random() } 
   // 同じものを開ける必要がある。Rules 側でも匿名の作成・削除を拒んでいる。
   let uid, db, sdk, events, booted = false;
 
+  /**
+   * 直している最中のトラックID。
+   *
+   * 準備の表はトラックの購読が届くたびに丸ごと描き直される。直している最中に
+   * 誰かが受付を開け閉めすると入力欄ごと消えるので、どこを直していたかは表の外に持つ。
+   * サインインの門より手前で宣言する。描き直しは購読が届いたときに走るので、
+   * 使う場所より後ろに置くと、先に走った描き直しが未初期化の変数を読む。
+   */
+  let renaming = null;
+
   el('signIn').addEventListener('click', async () => {
     el('signIn').disabled = true;
     try { await signInOrganizer(); }
@@ -498,6 +508,9 @@ export async function createOrganizer({ eventId, random = () => Math.random() } 
    */
   function paintTracks(eventId, rows) {
     const body = el('tracks');
+    // 名前を直している最中に購読が届くと、表ごと描き直されて打ちかけが消える。
+    // 持って行って入れ直す。他の運営が受付を開け閉めしただけで打ち直しになるのを防ぐ。
+    const typed = renaming ? body.querySelector('.renaming')?.value : null;
     body.replaceChildren();
     // 1つも無いときだけ、トラックが何なのかを出す。
     // 並んでいれば見れば分かるので、ずっと出しておく必要はない。
@@ -505,9 +518,7 @@ export async function createOrganizer({ eventId, random = () => Math.random() } 
     for (const t of rows) {
       const tr = document.createElement('tr');
 
-      const name = cell(tr);
-      name.style.fontWeight = '700';
-      name.textContent = t.name;
+      cell(tr).append(trackNameCell(eventId, t));
 
       // 渡す相手ごとに分ける。取り違えると、観客に登壇者用の画面を配ることになる。
       const toSpeaker = cell(tr);
@@ -549,6 +560,70 @@ export async function createOrganizer({ eventId, random = () => Math.random() } 
 
       body.append(tr);
     }
+    // 直していた行が残っていれば、打ちかけと入力の位置を戻す。
+    const back = renaming ? body.querySelector('.renaming') : null;
+    if (back) {
+      if (typed != null) back.value = typed;
+      back.focus();
+    }
+  }
+
+  /**
+   * 準備の表のトラック名。押すと入力欄になる。
+   *
+   * 入力欄を出したままにはしない。配り物のボタンを探す手が名前の欄に当たるし、
+   * 行の中に常に入力欄があると「ここに演題を書くのか」と読まれる。
+   * イベント名と同じ直し方に揃える（change で保存、空なら元に戻す）。
+   */
+  function trackNameCell(eventId, t) {
+    if (renaming === t.id) return nameInput(eventId, t);
+    // 見える文字は名前だけ。何のボタンかは読み上げ用の名前が持つ。
+    return button(t.name, 'rename', (e) => {
+      renaming = t.id;
+      const input = nameInput(eventId, t);
+      e.currentTarget.replaceWith(input);
+      input.focus();
+      input.select();
+    }, `${t.name} の名前を変える`);
+  }
+
+  function nameInput(eventId, t) {
+    const input = document.createElement('input');
+    input.className = 'renaming';
+    input.value = t.name;
+    input.maxLength = 40;            // Rules 側の上限と同じ
+    input.autocomplete = 'off';
+    input.setAttribute('aria-label', `${t.name} の名前`);
+
+    // Tab で離れると change と blur が続けて飛ぶ。保存を2回投げない。
+    let done = false;
+    const finish = async (save) => {
+      if (done) return;
+      done = true;
+      renaming = null;
+      const name = input.value.trim();
+      const revert = () => input.replaceWith(trackNameCell(eventId, t));
+      if (!save || name === t.name) { revert(); return; }
+      if (!name) {
+        // 空のまま離れると、行から名前が消えたように見える。欄のほうを元に戻す。
+        fail('トラック名は空にできません');
+        revert();
+        return;
+      }
+      try {
+        // 購読が届けば表ごと描き直されるので、ここでは欄を戻さない。
+        await events.renameTrack(eventId, t.id, { name });
+        say(`${t.name} を ${name} に変えました。配ったQRとリンクはそのまま使えます`, 'ok');
+      } catch (e) {
+        fail(`名前を変えられない: ${e.code ?? e.message}`);
+        revert();
+      }
+    };
+    input.addEventListener('change', () => finish(true));
+    input.addEventListener('blur', () => finish(true));
+    // 押し間違えて開いたときの出口。打った分は捨てる。
+    input.addEventListener('keydown', (e) => { if (e.key === 'Escape') finish(false); });
+    return input;
   }
 
   /**
