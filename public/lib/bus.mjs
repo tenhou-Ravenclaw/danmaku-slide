@@ -44,8 +44,17 @@ export function createEventBus(sdk, { db, uid }) {
       });
     },
 
+    /**
+     * イベント1件を購読する。
+     *
+     * 「無い」と言えるのはサーバーが無いと言ったときだけ。
+     * 冷えた状態で開くと、最初にキャッシュ由来の空スナップショットが届く。
+     * それをそのまま渡すと、配ったリンクを初めて開いた人に
+     * 「イベントが見つからない」が一瞬出る。存在するイベントなのに。
+     */
     watchEvent(eventId, onEvent, onError) {
       return onSnapshot(doc(db, 'events', eventId), (snap) => {
+        if (!snap.exists() && snap.metadata.fromCache) return;
         onEvent(snap.exists() ? { id: snap.id, ...snap.data() } : null);
       }, onError);
     },

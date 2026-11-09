@@ -155,20 +155,22 @@ async function makeLiveEvent(name, trackNames = ['Track A'], scheme = null) {
 }
 
 /**
- * 当日の面を開く。受付の開け閉めはこちらにある。
+ * そのイベントの面を、もう1枚開く。
+ *
+ * 配るのと開け閉めするのは同じ面にある。分けるのをやめたので、
+ * 「当日の面」という別の場所はもう無い。
  *
  * 作った運営と同じ ctx で開く。別の文脈で開くと別の運営になり、
  * 自分のイベントが1つも無い面が出る。
  */
-async function openToday(org) {
-  const r = await open(`${HOST}/organizer.html?emu=1`, { ctx: org.page.context() });
-  await r.page.waitForSelector(`#today [data-event="${org.eventId}"] .pill`,
-    { state: 'visible', timeout: 25000 });
+async function openEvent(org) {
+  const r = await open(`${HOST}/organizer.html?e=${org.eventId}&emu=1`, { ctx: org.page.context() });
+  await r.page.waitForSelector('#tracks .pill', { state: 'visible', timeout: 25000 });
   return r;
 }
 
-/** 当日の面の、そのイベントの塊。操作は必ずこの中から押す。 */
-const todayCard = (page, eventId) => page.locator(`#today [data-event="${eventId}"]`);
+/** 操作は必ずそのイベントの表から押す。「全部」もそのイベントにしか効かない。 */
+const eventPane = (page) => page.locator('#detailView');
 
 // --- 運営の画面 ---------------------------------------------------------
 await t('イベントを作ると詳細へ移り、URLにIDが残る', async () => {
@@ -255,27 +257,56 @@ await t('チラシ用QRが読み取れる', async () => {
   await sheet.close(); await page.close();
 });
 
-await t('受付状況がトラックの数とともに出る', async () => {
-  const { page, eventId } = await makeLiveEvent('状況の会', ['Track A', 'Track B']);
-  const list = await open(`${HOST}/organizer.html?emu=1`, { ctx: page.context() });
-  await list.page.waitForSelector('#newEventName', { state: 'visible', timeout: 25000 });
-  // トラック数は一覧に入っていないので、イベントごとに数え直している。
-  await list.page.waitForFunction(
-    () => [...document.querySelectorAll('#upcoming tr')]
-      .some((tr) => tr.textContent.includes('状況の会') && /\d+ トラック/.test(tr.textContent)),
-    { timeout: 20000 });
-  const text = await list.page.textContent('#upcoming');
-  assert(/2 トラック/.test(text), text);
-  assert(/受付中 2 \/ 2/.test(text), text);
-  await list.page.close(); await page.close();
+await t('受付状況はイベントの面で、トラックごとに出る', async () => {
+  // 一覧の表には「受付中 2 / 2」という要約を出していた。表ごと無くなったので、
+  // 要約ではなくトラック1本ずつの状態で見る。数えるより正確で、押す場所と同じ所にある。
+  const { page } = await makeLiveEvent('状況の会', ['Track A', 'Track B']);
+  await page.waitForFunction(
+    () => document.querySelectorAll('#tracks .pill.good').length === 2, { timeout: 25000 });
+  assert(/2 トラック/.test(await page.textContent('#evMeta')), await page.textContent('#evMeta'));
+  await page.close();
+});
+
+await t('冷えた状態で ?e= を開いても「見つからない」と出ない', async () => {
+  // onSnapshot は最初にキャッシュ由来の空スナップショットを届けることがある。
+  // それを「無い」と扱うと、存在するイベントを初めて開いた人に
+  // 「イベントが見つからない」が一瞬出る。サーバーが無いと言うまで待つ。
+  const org = await makeLiveEvent('初見の会', ['Track A']);
+  const fresh = await open(`${HOST}/organizer.html?e=${org.eventId}&emu=1`,
+    { ctx: org.page.context() });
+  await fresh.page.waitForSelector('#tracks .pill', { timeout: 25000 });
+  assert(!/見つからない/.test(await fresh.page.textContent('#msg')),
+    await fresh.page.textContent('#msg'));
+  await fresh.page.close(); await org.page.close();
+});
+
+await t('イベントのタブが並び、開いている1本だけに印が付く', async () => {
+  const mine = await makeLiveEvent('こっちの会', ['Track A']);
+  const other = await makeEventInBrowser(
+    'となりの会', ['Track A'], TODAY, null, mine.page.context());
+
+  // 同じ日に2本あるので、日付だけでは見分けられない。名前で選べること。
+  await mine.page.waitForFunction(
+    () => document.querySelectorAll('#tabs .tab').length === 2, { timeout: 25000 });
+  const text = await mine.page.textContent('#tabs');
+  assert(/こっちの会/.test(text) && /となりの会/.test(text), text);
+
+  const current = await mine.page.locator('#tabs .tab[aria-current="page"]');
+  assert(await current.count() === 1, '開いている1本が分からない');
+  assert(/こっちの会/.test(await current.textContent()), await current.textContent());
+
+  // タブは本物のリンク。`?e=` がそのまま残る。
+  const href = await mine.page.locator(`#tabs .tab[data-event="${other.eventId}"]`).getAttribute('href');
+  assert(href.includes(`e=${other.eventId}`), href);
+  await other.page.close(); await mine.page.close();
 });
 
 await t('全トラックの投稿を止められる', async () => {
   const org = await makeLiveEvent('非常停止の会', ['Track A', 'Track B']);
-  const day = await openToday(org);
-  await todayCard(day.page, org.eventId).locator('.btn.stopAll').click();
+  const day = await openEvent(org);
+  await day.page.locator('#evActs .btn.stopAll').click();
   await day.page.waitForFunction((id) =>
-    document.querySelectorAll(`#today [data-event="${id}"] .pill.bad`).length === 2,
+    document.querySelectorAll('#tracks .pill.bad').length === 2,
   org.eventId, { timeout: 20000 });
 
   // 実際に投稿が拒否される
@@ -289,21 +320,19 @@ await t('全トラックの投稿を止められる', async () => {
 await t('「全部止める」は同じ日の別のイベントに届かない', async () => {
   // 当日の操作をイベントごとに分けた理由そのもの。日付でまとめると、
   // 隣でやっている別のイベントの受付まで閉じてしまう。
-  const mine = await makeLiveEvent('こっちの会', ['Track A']);
+  const mine = await makeLiveEvent('止めるほうの会', ['Track A']);
   const other = await makeEventInBrowser(
     'となりの会', ['Track A'], TODAY, null, mine.page.context());
-  const day = await openToday(mine);
-  await day.page.waitForFunction((id) =>
-    document.querySelector(`#today [data-event="${id}"] .pill.good`) !== null,
-  other.eventId, { timeout: 25000 });
+  const day = await openEvent(mine);
 
-  await todayCard(day.page, mine.eventId).locator('.btn.stopAll').click();
-  await day.page.waitForFunction((id) =>
-    document.querySelectorAll(`#today [data-event="${id}"] .pill.bad`).length === 1,
-  mine.eventId, { timeout: 20000 });
+  await day.page.locator('#evActs .btn.stopAll').click();
+  await day.page.waitForFunction(() =>
+    document.querySelectorAll('#tracks .pill.bad').length === 1, { timeout: 20000 });
 
-  // となりは受付中のまま。画面だけでなく、実際に投稿も通る。
-  assert(await todayCard(day.page, other.eventId).locator('.pill.bad').count() === 0,
+  // となりは受付中のまま。面が1イベントぶんになったので、となりの面で見る。
+  // その面は作ったときから開きっぱなしなので、開き直さない。
+  await other.page.waitForSelector('#tracks .pill', { timeout: 25000 });
+  assert(await other.page.locator('#tracks .pill.bad').count() === 0,
     '別のイベントまで止まった');
   const po = await actor();
   await busFor(po, other.eventId, 'a').post('となりはまだ送れる');
@@ -359,30 +388,46 @@ await t('イベントをトラックごと削除できる', async () => {
     () => new URL(location.href).searchParams.get('e') === null, { timeout: 20000 });
   await org.page.waitForSelector('#newEventName', { state: 'visible', timeout: 20000 });
   await org.page.waitForFunction(
-    () => !document.getElementById('upcoming').textContent.includes('消す会'), { timeout: 20000 });
+    () => !document.getElementById('tabs').textContent.includes('消す会'), { timeout: 20000 });
   await org.page.close();
 });
 
-await t('消す操作は、当日に押す操作と同じ場所に無い', async () => {
+await t('消す操作は、よく押す操作から離れている', async () => {
   // 守りたいのは「戻せない操作を、よく押す操作の隣に置かない」。
-  // 非常停止が当日の面へ移ったので、距離ではなく置き場所で見る。
-  // 当日その場で押す面には消すものを1つも置かず、残った準備の面では、
-  // いちばんよく押す表から離れていることを測る。
+  //
+  // 面を分けていたころは置き場所で守れた。分けるのをやめたので、
+  // いまは距離だけが頼り。だから画面ではなく座標で測る。
+  //
+  // 止めるは戻せる操作なので赤くしない。この面の赤は削除だけ。
   const org = await makeLiveEvent('距離の会', ['Track A']);
-  const day = await openToday(org);
+  await org.page.waitForSelector('#tracks .btn.stop', { timeout: 25000 });
 
-  assert(!await day.page.isVisible('#deleteEvent'), '当日の面にイベントの削除がある');
-  assert(await day.page.locator('#today .btn.remove').count() === 0,
-    '当日の面にトラックの削除がある');
-  assert(await day.page.locator('#today .btn.stopAll').count() > 0, '止める操作が無い');
-
-  const gap = await org.page.evaluate(() => {
+  const m = await org.page.evaluate(() => {
+    const r = (sel) => document.querySelector(sel).getBoundingClientRect();
     const table = document.querySelector('#tracks').closest('table').getBoundingClientRect();
-    const del = document.getElementById('deleteEvent').getBoundingClientRect();
-    return del.top - table.bottom;
+    return {
+      // イベントの削除は、いちばんよく押す表から離れている
+      evDelete: Math.round(r('#deleteEvent').top - table.bottom),
+      // 行の中では「止める」と「削除」が隣り合わない
+      rowGap: Math.round(r('#tracks .btn.remove').left - r('#tracks .btn.stop').right),
+    };
   });
-  assert(gap > 150, `近すぎる: ${Math.round(gap)}px`);
-  await day.page.close(); await org.page.close();
+  assert(m.evDelete > 150, `イベントの削除が表に近すぎる: ${m.evDelete}px`);
+  assert(m.rowGap > 100, `止めると削除が近すぎる: ${m.rowGap}px`);
+
+  // 止めるは戻せる操作なので、削除と同じ見た目にしない。
+  // 文字色では測れない（primary も danger も文字は白）ので、地の色で見る。
+  const look = await org.page.evaluate(() => {
+    const paint = (sel) => {
+      const cs = getComputedStyle(document.querySelector(sel));
+      return `${cs.backgroundColor}|${cs.borderColor}|${cs.color}`;
+    };
+    return { stop: paint('#tracks .btn.stop'), stopAll: paint('#evActs .btn.stopAll'),
+             rowDelete: paint('#tracks .btn.remove'), evDelete: paint('#deleteEvent') };
+  });
+  assert(look.stop !== look.evDelete, '「止める」が削除と同じ見た目をしている');
+  assert(look.stopAll !== look.evDelete, '「全部止める」が削除と同じ見た目をしている');
+  await org.page.close();
 });
 
 await t('イベント詳細で受付を止めると、観客が投稿できなくなる', async () => {
@@ -421,14 +466,27 @@ await t('イベント詳細のまとめ操作は、表から離れている', as
   await org.page.close();
 });
 
-await t('今日ひらくイベントが無ければ「今日」を出さない', async () => {
-  // 見出しだけ残すと、毎日ひらく画面の上端が「今日は何も無い」で埋まる。
-  const org = await makeEventInBrowser('来年の会', ['Track A'], '2027-12-12');
-  const list = await open(`${HOST}/organizer.html?emu=1`, { ctx: org.page.context() });
+await t('終わったイベントはタブに並ばない', async () => {
+  // 開く理由が無いものを並べ続けると、使うほどタブが溢れる。
+  // ただし消しもしない。「終わった」は開催日から導いているだけなので、
+  // 日付を打ち間違えたイベントが黙って消えると作り直すしかなくなる。
+  const past = await makeEventInBrowser('去年の会', [], '2020-01-01');
+  const soon = await makeEventInBrowser('来年の会', [], '2027-12-12', null, past.page.context());
+  const list = await open(`${HOST}/organizer.html?emu=1`, { ctx: past.page.context() });
+
   await list.page.waitForFunction(
-    () => document.querySelectorAll('#upcoming tr').length > 0, { timeout: 25000 });
-  assert(!await list.page.isVisible('#todayLane'), '今日のイベントが無いのに出ている');
-  await list.page.close(); await org.page.close();
+    () => document.querySelectorAll('#tabs .tab').length === 1, { timeout: 25000 });
+  assert(/来年の会/.test(await list.page.textContent('#tabs')), await list.page.textContent('#tabs'));
+  assert(!/去年の会/.test(await list.page.textContent('#tabs')), '終わったものが並んでいる');
+
+  // 戻り口から開ける。日付を直して戻せる道が残っていること。
+  const back = list.page.locator('#showPast');
+  assert(/終わったもの（1）/.test(await back.textContent()), await back.textContent());
+  await back.click();
+  await list.page.waitForFunction(
+    () => document.querySelectorAll('#tabs .tab').length === 2, { timeout: 20000 });
+  assert(/去年の会/.test(await list.page.textContent('#tabs')), '戻り口から出てこない');
+  await list.page.close(); await soon.page.close(); await past.page.close();
 });
 
 // --- 登壇者の画面 -------------------------------------------------------
@@ -557,10 +615,10 @@ await t('作ったらすぐ送れる（運営の開け忘れで止まらない�
 
 await t('全トラックを止めてから、まとめて開け直せる', async () => {
   const org = await makeLiveEvent('開け直しの会', ['Track A', 'Track B']);
-  const day = await openToday(org);
-  await todayCard(day.page, org.eventId).locator('.btn.stopAll').click();
+  const day = await openEvent(org);
+  await day.page.locator('#evActs .btn.stopAll').click();
   await day.page.waitForFunction((id) =>
-    document.querySelectorAll(`#today [data-event="${id}"] .pill.bad`).length === 2,
+    document.querySelectorAll('#tracks .pill.bad').length === 2,
   org.eventId, { timeout: 20000 });
   const po = await open(`${HOST}/post.html?emu=1&e=${org.eventId}&t=a`);
   await po.page.waitForFunction(
@@ -570,7 +628,7 @@ await t('全トラックを止めてから、まとめて開け直せる', async
   await po.page.waitForTimeout(400);
   assert(await po.page.isDisabled('#send'), '止めたのに押せる');
 
-  await todayCard(day.page, org.eventId).locator('.btn.openAll').click();
+  await day.page.locator('#evActs .btn.openAll').click();
   await po.page.waitForFunction(
     () => /受付中/.test(document.getElementById('title')?.textContent ?? ''), { timeout: 20000 });
   await po.page.waitForFunction(() => !document.getElementById('send').disabled, { timeout: 20000 });
@@ -595,7 +653,7 @@ await t('届いたコメントが手元に出て、件数が増える', async ()
 
 await t('投稿を止めるのは運営だけ（登壇者の画面に操作はない）', async () => {
   const org = await makeLiveEvent('止める会', ['Track A']);
-  const day = await openToday(org);
+  const day = await openEvent(org);
   const sp = await open(await speakerLink(org.page));
   await sp.page.waitForFunction(
     () => /受付中/.test(document.getElementById('stateText')?.textContent ?? ''), { timeout: 20000 });
@@ -609,7 +667,7 @@ await t('投稿を止めるのは運営だけ（登壇者の画面に操作は�
   await aud.page.waitForFunction(
     () => /受付中/.test(document.getElementById('title')?.textContent ?? ''), { timeout: 20000 });
 
-  await todayCard(day.page, org.eventId).locator('.btn.stop').click();
+  await day.page.locator('#tracks .btn.stop').click();
 
   await aud.page.waitForFunction(
     () => /投稿を受け付けていません/.test(document.getElementById('note')?.textContent ?? ''),
@@ -637,7 +695,7 @@ await t('投稿を止めるのは運営だけ（登壇者の画面に操作は�
   assert(denied, '止めたのにサーバが受けた');
 
   // 運営が戻せば送れる
-  await todayCard(day.page, org.eventId).locator('.btn.resume').click();
+  await day.page.locator('#tracks .btn.resume').click();
   await aud.page.waitForFunction(
     () => document.getElementById('send')?.disabled === false, { timeout: 20000 });
   await aud.page.close(); await sp.page.close();
@@ -764,10 +822,10 @@ await t('連投すると残り秒数がボタンと状態行の両方に出る',
 
 await t('停止中は理由が出て、再スキャンが要らないと伝える', async () => {
   const org = await makeLiveEvent('停止表示の会', ['Track A']);
-  const day = await openToday(org);
-  await todayCard(day.page, org.eventId).locator('.btn.stop').click();
+  const day = await openEvent(org);
+  await day.page.locator('#tracks .btn.stop').click();
   await day.page.waitForFunction((id) =>
-    document.querySelectorAll(`#today [data-event="${id}"] .pill.bad`).length === 1,
+    document.querySelectorAll('#tracks .pill.bad').length === 1,
   org.eventId, { timeout: 20000 });
   const { page } = await open(`${HOST}/post.html?emu=1&e=${org.eventId}&t=a`);
   await page.waitForFunction(
@@ -946,11 +1004,11 @@ async function readableWhileHovering(page, sel) {
 for (const scheme of ['light', 'dark']) {
   await t(`ボタンはホバーしても読める（運営・${scheme}）`, async () => {
     const org = await makeLiveEvent(`ボタンの会 ${scheme}`, ['Track A'], scheme);
-    const day = await openToday(org);
+    const day = await openEvent(org);
     // 塗りつぶし・枠線・文字だけ、種類をひととおり見る。
     // 止めるボタンは当日の面、配り物と消すボタンは準備の面にある。
     const targets = [
-      [day.page, `#today [data-event="${org.eventId}"] .btn.stopAll`, 'caution'],
+      [day.page, '#evActs .btn.stopAll', 'caution'],
       [org.page, '#addTrack', 'primary'],
       [org.page, '#copyEvUrl', 'quiet'],
       [org.page, '#tracks tr .btn.toSpeaker', '既定'],
@@ -983,7 +1041,8 @@ for (const scheme of ['light', 'dark']) {
   await t(`運営の画面が ${scheme} で読める`, async () => {
     const r = await open(`${HOST}/organizer.html?emu=1`, { scheme });
     await signInAsOrganizer(r.page);
-    const pairs = await readable(r.page, ['h1.title', '.lead', 'h2.section', '#createEvent']);
+    // 一覧の見出し（h2.section）はタブになった。タブは常にある `＋` で見る。
+    const pairs = await readable(r.page, ['h1.title', '.lead', '#newTab', '#createEvent']);
     assert(pairs.length === 4, `要素が足りない: ${pairs.length}`);
     for (const { sel, fg, bg } of pairs) {
       const ratio = contrast(rgb(fg), rgb(bg));
@@ -1003,13 +1062,13 @@ for (const scheme of ['light', 'dark']) {
     // 2本にして、受付中と停止中を同じ画面に並べる。片方だけでは、
     // 並んだときに見分けが付くかどうかを測れない。
     const org = await makeLiveEvent(`状態配色の会 ${scheme}`, ['Track A', 'Track B'], scheme);
-    const day = await openToday(org);
-    await todayCard(day.page, org.eventId).locator('.btn.stop').nth(0).click();
+    const day = await openEvent(org);
+    await day.page.locator('#tracks .btn.stop').nth(0).click();
     await day.page.waitForFunction((id) =>
-      document.querySelectorAll(`#today [data-event="${id}"] .pill.bad`).length === 1,
+      document.querySelectorAll('#tracks .pill.bad').length === 1,
     org.eventId, { timeout: 20000 });
     for (const { sel, fg, bg } of await readable(day.page,
-      ['#today .pill.bad', '#today .pill.good', '.pill.mute'])) {
+      ['#tracks .pill.bad', '#tracks .pill.good', '.pill.mute'])) {
       const ratio = contrast(rgb(fg), rgb(bg));
       assert(ratio >= 4.5, `${sel} のコントラストが低い: ${ratio.toFixed(2)} (${fg} / ${bg})`);
     }
@@ -1144,16 +1203,16 @@ await t('読み上げる場所は画面にひとつだけ', async () => {
 });
 
 await t('終了したイベントもキーボードで開ける', async () => {
-  // 開催予定と終了済みで行の作りが分かれていて、終了済みだけ
+  // 前は開催予定と終了済みで行の作りが分かれていて、終了済みだけ
   // tabIndex と Enter が抜けていた（マウスでしか開けなかった）。
+  // タブは本物のリンクなので、作りが分かれようが無い。それを確かめる。
   const org = await makeEventInBrowser('過去の会', [], '2020-01-01');
   const list = await open(`${HOST}/organizer.html?emu=1`, { ctx: org.page.context() });
-  await list.page.waitForSelector('#newEventName', { state: 'visible', timeout: 25000 });
-  await list.page.waitForFunction(
-    () => document.querySelectorAll('#past tr').length > 0, { timeout: 20000 });
-  const row = list.page.locator('#past tr').first();
-  assert(await row.getAttribute('tabindex') === '0', '終了済みの行にフォーカスが当たらない');
-  await row.focus();
+  await list.page.waitForSelector('#showPast:not(.hidden)', { timeout: 25000 });
+  await list.page.click('#showPast');
+  const tab = list.page.locator(`#tabs .tab[data-event="${org.eventId}"]`);
+  await tab.waitFor({ state: 'visible', timeout: 20000 });
+  await tab.focus();
   await list.page.keyboard.press('Enter');
   await list.page.waitForFunction(
     () => new URL(location.href).searchParams.get('e') !== null, { timeout: 20000 });
@@ -1163,12 +1222,11 @@ await t('終了したイベントもキーボードで開ける', async () => {
 await t('トラックの表が横スクロール無しで収まる', async () => {
   // 列見出しが意味を持っているので、ボタンの文字はそこまで繰り返さない。
   // 「登壇用リンクをコピー」を全列ぶん並べると 1280px でも 115px はみ出していた。
-  // 準備と当日の両方を見る。表は2つあり、どちらもはみ出しうる。
+  // 表は1つになったが、代わりに「受付」の列が増えている。いちばん狭い所で見る。
   const org = await makeLiveEvent('幅の会', ['Track A', 'Track B']);
   await org.page.waitForFunction(
     () => document.querySelectorAll('#tracks tr').length === 2, { timeout: 20000 });
-  const day = await openToday(org);
-  for (const [page, where] of [[org.page, '準備'], [day.page, '当日']]) {
+  for (const [page, where] of [[org.page, 'イベントの面']]) {
     for (const width of [1280, 1024]) {
       await page.setViewportSize({ width, height: 900 });
       await page.waitForTimeout(200);
@@ -1179,7 +1237,7 @@ await t('トラックの表が横スクロール無しで収まる', async () =>
     }
     await page.setViewportSize({ width: 1280, height: 800 });
   }
-  await day.page.close(); await org.page.close();
+  await org.page.close();
 });
 
 await t('短くしたボタンでも何のボタンか読み上げられる', async () => {
@@ -1187,7 +1245,7 @@ await t('短くしたボタンでも何のボタンか読み上げられる', as
   // 列見出しが付いてこないので、読み上げ用の名前に全部の意味を持たせる。
   // 準備と当日の、どちらの行も同じ決まりで作る。
   const org = await makeLiveEvent('名前の会', ['Track A']);
-  const day = await openToday(org);
+  const day = await openEvent(org);
   const spoken = (row) => row.evaluate((tr) =>
     [...tr.querySelectorAll('button')].map((b) => ({
       見える: b.textContent.trim(),
@@ -1195,7 +1253,7 @@ await t('短くしたボタンでも何のボタンか読み上げられる', as
     })));
 
   const prep = await spoken(org.page.locator('#tracks tr').first());
-  const live = await spoken(todayCard(day.page, org.eventId).locator('tbody tr').first());
+  const live = await spoken(day.page.locator('#tracks tr').first());
   for (const n of [...prep, ...live]) {
     assert(/Track A/.test(n.読み上げ), `どのトラックか分からない: ${JSON.stringify(n)}`);
     assert(n.読み上げ.length > n.見える.length, `読み上げが短いまま: ${JSON.stringify(n)}`);
@@ -1209,7 +1267,7 @@ await t('短くしたボタンでも何のボタンか読み上げられる', as
 await t('表に見出しの対応と説明がある', async () => {
   // 準備の表と当日の表、どちらも列見出しと説明を持つ。
   const org = await makeLiveEvent('表の会', ['Track A']);
-  const day = await openToday(org);
+  const day = await openEvent(org);
   const look = (page, sel) => page.evaluate((s) =>
     [...document.querySelectorAll(s)].map((tb) => {
       const table = tb.closest('table');
@@ -1219,7 +1277,7 @@ await t('表に見出しの対応と説明がある', async () => {
       };
     }), sel);
 
-  const tables = [...await look(org.page, '#tracks'), ...await look(day.page, '#today tbody')];
+  const tables = [...await look(org.page, '#tracks'), ...await look(day.page, '#tracks')];
   assert(tables.length === 2, `表が足りない: ${tables.length}`);
   let cols = 0;
   for (const tb of tables) {
@@ -1235,7 +1293,7 @@ await t('狭い画面でも本文が横にずれない', async () => {
   // 表は画面が狭いとはみ出す。本文ごとスクロールさせない。
   // 当日の面も見る。イベント名と表が並ぶぶん、はみ出す余地はこちらのほうが大きい。
   const org = await makeLiveEvent('狭い画面の会', ['Track A']);
-  const day = await openToday(org);
+  const day = await openEvent(org);
   for (const page of [org.page, day.page]) {
     await page.setViewportSize({ width: 390, height: 800 });
     await page.waitForTimeout(400);

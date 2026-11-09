@@ -62,16 +62,33 @@
   #msg[data-kind="ok"]  { background: var(--good-bg); color: var(--good); border-color: currentColor; }
   #msg[data-kind="bad"] { background: var(--bad-bg);  color: var(--bad);  border-color: currentColor; }
 
-  /* 一覧の行はまるごと押せる。1行1イベント。 */
-  table.rows tbody tr.clickable { cursor: pointer; }
-  table.rows tbody tr.clickable:hover { background: var(--surface2); }
-  .chev { color: var(--muted); text-align: right; width: 2rem; }
-  .done td { color: var(--muted); }
-
-  /* --- 詳細 --------------------------------------------------------- */
-  .crumb { display: inline-flex; align-items: center; gap: .3rem; font-size: var(--t-sm);
-           color: var(--muted); text-decoration: none; }
-  .crumb:hover { color: var(--accent); }
+  /* --- イベントのタブ ------------------------------------------------ */
+  /*
+   * 開いている1本だけが紙の色を持ち、他は下地に沈む。色の違いで示すと、
+   * 「選べる」ことと「いま選ばれている」ことが同じ強さになって見分けられない。
+   */
+  .tabs { display: flex; align-items: stretch; gap: .15rem; overflow-x: auto;
+          border-bottom: 1px solid var(--line2); margin-bottom: 1.4rem; padding-top: .3rem; }
+  .tabstrip { display: flex; gap: .15rem; }
+  .tab {
+    flex: none; display: flex; flex-direction: column; justify-content: center;
+    padding: .45rem .85rem; margin-bottom: -1px; line-height: 1.35;
+    border: 1px solid transparent; border-bottom: 0; border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+    font: inherit; font-size: var(--t-sm); font-weight: 600;
+    color: var(--muted); background: none; text-decoration: none; white-space: nowrap; cursor: pointer;
+  }
+  .tab:hover { background: var(--surface2); color: var(--ink); }
+  .tab[aria-current="page"] {
+    background: var(--surface); border-color: var(--line2); border-bottom-color: var(--surface);
+    color: var(--ink); font-weight: 700;
+  }
+  /* 同じ日に2本あるので、日付が無いとどちらも今日だと分からない。 */
+  .tab > .tdate { font-size: var(--t-xs); font-weight: 400; color: var(--muted); }
+  .tab[aria-current="page"] > .tdate { color: var(--accent); }
+  .tab.add { justify-content: center; color: var(--accent); font-size: var(--t-md); }
+  .tabsp { flex: 1; min-width: 1rem; }
+  /* 終わったものへの戻り口。並べるのではなく、端に逃がす。 */
+  .tab.past { font-weight: 400; font-size: var(--t-xs); align-self: center; }
 
   /* 見出しがそのまま入力欄。同じ名前を2回出さない。 */
   h1.title.edit { display: flex; }
@@ -117,17 +134,6 @@
   .btn.remove:hover { background: var(--bad-bg); color: var(--bad); }
   /* 消す列だけ少し離す。隣はリンクを配る操作で、こちらは戻せない。 */
   #tracks td:last-child, .rows thead th:last-child { padding-left: 1.4rem; }
-
-  /* --- 当日 --------------------------------------------------------- */
-  /* イベントごとの塊。見出し行に「全部」の操作を置く。
-     日付全体に効かせない。同じ日に2つ走っていると、片方の運営の
-     「全部止める」が関係ないイベントの受付まで閉じてしまう。 */
-  .today-head { display: flex; align-items: baseline; gap: .6rem; flex-wrap: wrap;
-                padding: .8rem 1rem; border-bottom: 1px solid var(--line); }
-  .today-head > h3 { font-size: var(--t-md); font-weight: 700; }
-  .today-head > .hint { font-size: var(--t-sm); color: var(--muted); }
-  .today-head > .acts { margin-left: auto; display: flex; gap: .4rem; flex-wrap: wrap; }
-  .today-empty { margin: 0; padding: .9rem 1rem; font-size: var(--t-sm); color: var(--muted); }
 
   .foot { font-size: var(--t-sm); color: var(--muted); margin: .7rem 0 0; }
 
@@ -198,23 +204,23 @@
   </section>
 
   <!-- イベント一覧 -->
+  <!-- イベントのタブ。開いている1本だけが紙の色を持つ。
+       一覧と詳細を分けていたころは「当日の操作をどっちに置くか」が問題だったが、
+       分けるのをやめたので問いごと消えた。 -->
+  <nav id="tabBar" class="tabs hidden" aria-label="イベント">
+    <div id="tabs" class="tabstrip"></div>
+    <a id="newTab" class="tab add" href="./organizer.html" aria-label="イベントを作る">＋</a>
+    <span class="tabsp"></span>
+    <!-- 終わったものは並べない。ただし「終わった」は開催日から導いているだけなので、
+         日付を打ち間違えたイベントが戻ってこなくなる。戻り口だけ残す。 -->
+    <button id="showPast" class="tab past hidden" aria-expanded="false"></button>
+  </nav>
+
   <section id="listView" class="stack hidden">
     <div>
-      <h1 class="title">イベント</h1>
-      <p class="lead">イベントを選んでトラックを並べ、登壇者にリンクを配ります。</p>
+      <h1 class="title">イベントを作る</h1>
+      <p class="lead">トラックを並べて、観客と登壇者にリンクを配ります。</p>
     </div>
-
-    <!-- 当日の操作。サインインして最初に出る面がこれになる。
-         配り物（QR とリンク）は準備の画面に置き、ここには当日しか使わない
-         受付の開け閉めだけを置く。同じ日に2つイベントが走っていても、
-         操作したいイベントの行がこの面にある。 -->
-    <section id="todayLane" class="lane hidden">
-      <div class="lane-head">
-        <h2>今日</h2>
-        <span class="hint" id="todayDate"></span>
-      </div>
-      <div id="today" class="stack"></div>
-    </section>
 
     <div class="card" style="padding:1rem">
       <div class="row">
@@ -226,34 +232,10 @@
       </div>
     </div>
 
-    <div class="lane">
-      <h2 class="section">これから・開催中</h2>
-      <!-- 表は画面が狭いとはみ出す。横に逃がす。 -->
-      <div class="card scroller"><table class="rows">
-        <caption class="visually-hidden">これから開催するイベント</caption>
-        <thead><tr>
-          <th scope="col">イベント名</th><th scope="col">開催日</th>
-          <th scope="col">トラック</th><th scope="col">受付状況</th><th><span class="visually-hidden">開く</span></th>
-        </tr></thead>
-        <tbody id="upcoming"></tbody>
-      </table></div>
-      <p id="noUpcoming" class="empty hidden">
-        まだイベントがありません。上の欄に名前を入れて作ってください。</p>
-    </div>
-
-    <div class="lane">
-      <h2 class="section">終わったイベント</h2>
-      <div class="card scroller"><table class="rows">
-        <caption class="visually-hidden">終わったイベント</caption>
-        <tbody id="past"></tbody></table></div>
-      <p id="noPast" class="muted hidden" style="font-size:var(--t-sm)">まだありません。</p>
-    </div>
   </section>
 
   <!-- イベント詳細 -->
   <section id="detailView" class="stack hidden">
-    <a href="./organizer.html" class="crumb" style="justify-self:start">‹ イベント一覧</a>
-
     <div class="headrow">
       <div class="who">
         <!-- 見出しそのものが入力欄。読み上げ用の名前は隠した側が持つ。 -->

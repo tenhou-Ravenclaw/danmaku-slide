@@ -93,71 +93,78 @@ export async function createOrganizer({ eventId, random = () => Math.random() } 
     booted = true;
     ({ uid, db, sdk } = user);
     events = createEventBus(sdk, { db, uid });
-    if (eventId) detail(eventId); else list();
+    el('tabBar').classList.remove('hidden');
+    tabs();
+    if (eventId) detail(eventId); else create();
   });
 
   return { kind: 'gate' };
 
-  // --- イベント一覧と当日の操作 -----------------------------------------
-  function list() {
+  // --- イベントのタブ ---------------------------------------------------
+  //
+  // 一覧と詳細を分けていたころは「当日の操作をどっちのページに置くか」が
+  // 問題だった。分けるのをやめたので、問いごと消えた。
+  //
+  // タブは本物のリンクにする。`?e=` の直リンクがそのまま残り、
+  // 中クリックもキーボードも作らずに済む。
+  function tabs() {
+    // 終わったものは既定で畳む。出す／畳むをここで覚える。
+    let showPast = false;
+    let rows = [];
+
+    const paint = () => {
+      const { upcoming, past } = splitByDate(rows);
+      // いま開いているものは、終わっていても必ず出す。
+      // 自分が見ているイベントのタブが無いと、どれを開いているのか分からない。
+      const shown = showPast ? [...upcoming, ...past]
+        : [...upcoming, ...past.filter((ev) => ev.id === eventId)];
+      const strip = el('tabs');
+      strip.replaceChildren();
+      for (const ev of shown) strip.append(tab(ev));
+
+      // 終わったものが無いうちは、戻り口そのものを出さない。
+      const back = el('showPast');
+      back.classList.toggle('hidden', past.length === 0);
+      back.textContent = showPast ? '終わったものを畳む' : `終わったもの（${past.length}）`;
+      back.setAttribute('aria-expanded', String(showPast));
+    };
+
+    el('showPast').addEventListener('click', () => { showPast = !showPast; paint(); });
+
+    const unwatch = events.watchMyEvents((next) => { rows = next; paint(); },
+      (e) => fail(`イベントを読めない: ${e.code ?? e.message}`));
+
+    return { kind: 'tabs', stop: () => unwatch?.() };
+  }
+
+  /** タブ1枚。開いている1本だけが aria-current を持つ。 */
+  function tab(ev) {
+    const a = document.createElement('a');
+    a.className = 'tab';
+    a.dataset.event = ev.id;
+    a.href = withEnv(`./organizer.html?e=${encodeURIComponent(ev.id)}`);
+    if (ev.id === eventId) a.setAttribute('aria-current', 'page');
+
+    const name = document.createElement('span');
+    name.className = 'tname';
+    name.textContent = ev.name;
+
+    // 同じ日に2本あることがある。日付が無いと、どちらも今日だと分からない。
+    const when = document.createElement('span');
+    when.className = 'tdate';
+    when.textContent = ev.heldOn === todayIso()
+      ? `${formatDate(ev.heldOn)}・今日`
+      : (formatDate(ev.heldOn) || '日付なし');
+
+    a.append(name, when);
+    return a;
+  }
+
+  // --- イベントを作る ---------------------------------------------------
+  //
+  // イベントを選んでいないときの面。タブの `＋` もここへ来る。
+  function create() {
     el('listView').classList.remove('hidden');
-
-    // 今日のイベントだけはトラックの状態まで購読する。
-    //
-    // 一覧の受付状況は getTracksOnce で一度だけ読んでいる。当日の面はそれでは足りない。
-    // 「止める」を押しても pill が変わらなければ、押せたのかどうかが分からない。
-    const liveTracks = new Map();   // eventId → いま届いているトラック
-    const watching = new Map();     // eventId → 購読を止める関数
-    let evRows = [];                // 一覧に出すイベント（トラック数つき）
-
-    /** 今日のイベントは、受付の数も「いま」のものを使う。同じ画面に古い数字を並べない。 */
-    const withLive = (ev) => {
-      const live = liveTracks.get(ev.id);
-      return live
-        ? { ...ev, trackCount: live.length, openCount: live.filter(isOpen).length }
-        : ev;
-    };
-    const repaint = () => {
-      paintList(evRows.map(withLive));
-      paintToday(evRows.filter((ev) => ev.heldOn === todayIso()), liveTracks);
-    };
-
-    /** 今日のイベントの購読を、届いた一覧に合わせる。 */
-    function syncToday(rows) {
-      const want = new Set(rows.filter((ev) => ev.heldOn === todayIso()).map((ev) => ev.id));
-      for (const [id, stop] of watching) {
-        if (want.has(id)) continue;
-        stop();
-        watching.delete(id);
-        liveTracks.delete(id);
-      }
-      for (const id of want) {
-        if (watching.has(id)) continue;
-        watching.set(id, events.watchTracks(id, (tracks) => {
-          liveTracks.set(id, tracks);
-          repaint();
-        }, (e) => fail(`トラックを読めない: ${e.code ?? e.message}`)));
-      }
-    }
-
-    const unwatch = events.watchMyEvents(async (rows) => {
-      // 件数を数える前に購読を始める。当日の面は先に出るほうがいい。
-      syncToday(rows);
-      // トラック数は一覧には入っていないので、イベントごとに数える
-      const withCounts = await Promise.all(rows.map(async (ev) => {
-        try {
-          const snap = await events.getTracksOnce(ev.id);
-          const tracks = snap.docs.map((d) => d.data());
-          return { ...ev, trackCount: tracks.length, openCount: tracks.filter(isOpen).length };
-        } catch (e) {
-          // 握りつぶすと「—」が出るだけで原因が見えない
-          fail(`トラック数を数えられない: ${e.code ?? e.message}`);
-          return { ...ev, trackCount: null, openCount: 0 };
-        }
-      }));
-      evRows = withCounts;
-      repaint();
-    }, (e) => fail(`イベントを読めない: ${e.code ?? e.message}`));
 
     el('createEvent').addEventListener('click', async () => {
       const name = el('newEventName').value.trim();
@@ -177,15 +184,7 @@ export async function createOrganizer({ eventId, random = () => Math.random() } 
 
     // Enter では作らない。押し間違いでイベントが増えると消す手間になる。
     el('newEventName').focus();
-
-    return {
-      kind: 'list',
-      stop: () => {
-        unwatch?.();
-        for (const stop of watching.values()) stop();
-        watching.clear();
-      },
-    };
+    return { kind: 'create' };
   }
 
   /** 開催日で「これから」と「終わった」に分ける。日付が無いものは「これから」に置く。 */
@@ -203,146 +202,6 @@ export async function createOrganizer({ eventId, random = () => Math.random() } 
    * 1か所にまとめてある。前は開催予定と終了済みで別に書いていて、
    * 終了済みのほうだけ tabIndex と Enter が抜けていた（マウスしか使えなかった）。
    */
-  function openableRow(eventId, className) {
-    const tr = document.createElement('tr');
-    tr.className = className;
-    tr.tabIndex = 0;
-    const go = () => { location.href = withEnv(`./organizer.html?e=${encodeURIComponent(eventId)}`); };
-    tr.addEventListener('click', go);
-    tr.addEventListener('keydown', (e) => { if (e.key === 'Enter') go(); });
-    return tr;
-  }
-
-  function paintList(rows) {
-    const { upcoming, past } = splitByDate(rows);
-
-    const up = el('upcoming');
-    up.replaceChildren();
-    for (const ev of upcoming) {
-      const tr = openableRow(ev.id, 'clickable');
-
-      const name = cell(tr); name.style.fontWeight = '600'; name.textContent = ev.name;
-      cell(tr).textContent = formatDate(ev.heldOn) || '—';
-      cell(tr).textContent = ev.trackCount == null ? '—' : `${ev.trackCount} トラック`;
-
-      const st = cell(tr);
-      const pill = document.createElement('span');
-      if (!ev.trackCount) { pill.className = 'pill mute'; pill.textContent = '準備中'; }
-      else if (ev.openCount > 0) {
-        pill.className = 'pill good';
-        pill.textContent = `受付中 ${ev.openCount} / ${ev.trackCount}`;
-      } else { pill.className = 'pill mute'; pill.textContent = '受付前'; }
-      st.append(pill);
-
-      const chev = cell(tr); chev.className = 'chev'; chev.textContent = '›';
-      up.append(tr);
-    }
-    el('noUpcoming').classList.toggle('hidden', upcoming.length > 0);
-    up.closest('.card').classList.toggle('hidden', upcoming.length === 0);
-
-    const pastBody = el('past');
-    pastBody.replaceChildren();
-    for (const ev of past) {
-      const tr = openableRow(ev.id, 'clickable done');
-      cell(tr).textContent = ev.name;
-      const right = cell(tr);
-      right.style.textAlign = 'right';
-      right.textContent = `${formatDate(ev.heldOn)} · ${ev.trackCount} トラック`;
-      pastBody.append(tr);
-    }
-    el('noPast').classList.toggle('hidden', past.length > 0);
-    pastBody.closest('.card').classList.toggle('hidden', past.length === 0);
-  }
-
-  // --- 当日 -------------------------------------------------------------
-  /**
-   * 今日ひらいているイベントの受付を並べる。
-   *
-   * 今日が無ければ塊ごと出さない。見出しだけが残ると、
-   * 毎日ひらく画面の上端が「今日は何も無い」で埋まる。
-   */
-  function paintToday(todays, liveTracks) {
-    const host = el('today');
-    host.replaceChildren();
-    // トラックが届いていないイベントは出さない。一瞬だけ「トラックがありません」を見せないため。
-    const ready = todays.filter((ev) => liveTracks.has(ev.id));
-    el('todayLane').classList.toggle('hidden', ready.length === 0);
-    el('todayDate').textContent = formatDate(todayIso());
-    for (const ev of ready) host.append(todayCard(ev, liveTracks.get(ev.id)));
-  }
-
-  /** イベント1つぶんの塊。「全部」の操作はこの中だけに効く。 */
-  function todayCard(ev, rows) {
-    const card = document.createElement('div');
-    card.className = 'card';
-    card.dataset.event = ev.id;
-
-    const head = document.createElement('div');
-    head.className = 'today-head';
-    const title = document.createElement('h3');
-    title.textContent = ev.name;
-    const hint = document.createElement('span');
-    hint.className = 'hint';
-    hint.textContent = rows.length
-      ? `受付中 ${rows.filter(isOpen).length} / ${rows.length}` : 'トラックがありません';
-
-    // 開けるのと止めるのは対になる操作。片方だけ目立たせると、
-    // 止めるほうが常に画面でいちばん強い要素になってしまう。
-    // 名前を読み上げに入れる。同じ文字のボタンが、イベントの数だけ並ぶ。
-    const acts = document.createElement('span');
-    acts.className = 'acts';
-    const openAll = button('全部で受け付ける', 'btn sm openAll',
-      () => setAll(ev, rows, 'open', openAll), `${ev.name} の全トラックで受け付ける`);
-    const stopAll = button('全部止める', 'btn sm caution stopAll',
-      () => setAll(ev, rows, 'close', stopAll), `${ev.name} の全トラックを止める`);
-    acts.append(openAll, stopAll);
-    head.append(title, hint, acts);
-    card.append(head);
-
-    if (!rows.length) {
-      const p = document.createElement('p');
-      p.className = 'today-empty';
-      p.textContent = '下の一覧からこのイベントを開いて、トラックを足してください。';
-      card.append(p);
-      return card;
-    }
-
-    const scroller = document.createElement('div');
-    scroller.className = 'scroller';
-    const table = document.createElement('table');
-    table.className = 'rows';
-    table.innerHTML = `
-      <caption class="visually-hidden"></caption>
-      <thead><tr>
-        <th scope="col">トラック</th><th scope="col">受付</th>
-        <th scope="col" style="text-align:right">件数</th>
-        <th scope="col">受付の操作</th>
-      </tr></thead>
-      <tbody></tbody>`;
-    // イベント名は運営が打った文字。組み立てた HTML には混ぜない。
-    table.querySelector('caption').textContent = `${ev.name} のトラックと受付`;
-    const body = table.querySelector('tbody');
-
-    for (const t of rows) {
-      const tr = document.createElement('tr');
-      const name = cell(tr);
-      name.style.fontWeight = '700';
-      name.textContent = t.name;
-      cell(tr).append(statePill(t));
-      const count = cell(tr);
-      count.className = 'count';
-      count.textContent = '—';
-      countComments(ev.id, t, count);
-      const act = cell(tr);
-      act.className = 'link';
-      act.append(guardButton(ev.id, t));
-      body.append(tr);
-    }
-    scroller.append(table);
-    card.append(scroller);
-    return card;
-  }
-
   /**
    * そのイベントのトラックをまとめて開ける／止める。
    *
