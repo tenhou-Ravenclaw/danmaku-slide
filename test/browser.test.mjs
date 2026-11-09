@@ -340,6 +340,27 @@ await t('「全部止める」は同じ日の別のイベントに届かない',
   await day.page.close(); await other.page.close(); await mine.page.close();
 });
 
+await t('自分で付けたトラック名が、既定の Track より上に並ぶ', async () => {
+  // 当日その表を見る人にとって意味があるのは、会場を見て決めた名前のほう。
+  // 仮の名前が上に来ると、自分が決めた行を目で探すことになる。
+  const org = await makeLiveEvent('並びの会', ['Track A', 'Track B']);
+  await org.page.waitForFunction(
+    () => document.querySelectorAll('#tracks tr').length === 2, { timeout: 25000 });
+
+  // 2本目の名前を会場の名前に変える。並びが入れ替わるはず。
+  await org.page.locator('#tracks tr').nth(1).locator('.rename').click();
+  await org.page.fill('#tracks .renaming', '2F ホール');
+  await org.page.keyboard.press('Enter');
+
+  await org.page.waitForFunction(() =>
+    document.querySelector('#tracks tr')?.textContent.includes('2F ホール'), { timeout: 20000 });
+  const order = await org.page.evaluate(() =>
+    [...document.querySelectorAll('#tracks tr')].map((tr) => tr.textContent.trim().slice(0, 8)));
+  assert(/2F ホール/.test(order[0]), `先頭が会場名でない: ${order.join(' / ')}`);
+  assert(/Track A/.test(order[1]), `既定が下に来ていない: ${order.join(' / ')}`);
+  await org.page.close();
+});
+
 await t('次に足すトラック名が入っている', async () => {
   // 固定の例を置くと、空のイベントで「Track D」のような嘘を出すことになる
   const org = await makeEventInBrowser('名前の会', []);

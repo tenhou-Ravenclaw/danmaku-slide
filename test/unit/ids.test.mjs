@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {
   newEventId, newTrackId, newHandoffCode, slugFromName,
   postUrlFor, stageUrlFor, overlayUrlFor, eventUrlFor, shortUrl, ago, formatDate, withEnv,
-  nextTrackName,
+  nextTrackName, isDefaultTrackName, compareTrackName,
 } from '../../public/lib/ids.mjs';
 
 test('IDに紛れる文字を使わない', () => {
@@ -145,4 +145,40 @@ test('Z まで埋まったら番号に切り替える', () => {
 
 test('空や空白の名前は無視する', () => {
   assert.equal(nextTrackName(['', '  ', null, undefined]), 'Track A');
+});
+
+// --- トラックの並び ------------------------------------------------------
+//
+// 当日その表を見る人にとって意味があるのは、会場を見て決めた名前のほう。
+// 仮の名前が上に来ると、自分が決めた行を目で探すことになる。
+
+test('nextTrackName が作る形は既定とみなす', () => {
+  for (const n of ['Track A', 'Track Z', 'Track 1', 'Track 999', 'Track']) {
+    assert.equal(isDefaultTrackName(n), true, n);
+  }
+});
+
+test('自分で付けた名前は既定ではない', () => {
+  for (const n of ['2F ホール', '大講義室', 'トラックA', 'Main Hall', 'Track AA', 'Track 0', '']) {
+    assert.equal(isDefaultTrackName(n), false, n);
+  }
+});
+
+test('前後の空白は見ない（打ち込みの揺れで区分が変わらない）', () => {
+  assert.equal(isDefaultTrackName('  Track A  '), true);
+});
+
+test('自分で付けた名前が先、既定は後', () => {
+  const rows = ['Track B', '2F ホール', 'Track A', '大講義室'];
+  assert.deepEqual(rows.sort(compareTrackName), ['2F ホール', '大講義室', 'Track A', 'Track B']);
+});
+
+test('同じ区分の中はこれまで通り名前順', () => {
+  assert.deepEqual(['Track C', 'Track A', 'Track B'].sort(compareTrackName),
+    ['Track A', 'Track B', 'Track C']);
+  assert.deepEqual(['大講義室', '2F ホール'].sort(compareTrackName), ['2F ホール', '大講義室']);
+});
+
+test('名前が無くても落ちない', () => {
+  assert.deepEqual([null, 'Track A', undefined].sort(compareTrackName).length, 3);
 });

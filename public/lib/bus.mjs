@@ -1,10 +1,15 @@
 // Firestore との境界。描画も DOM も持たない。
 //
+// 並び順だけは例外で、ここで決める。運営の表と観客のトラック選択が
+// 別々に並べ替えると、両者が違う順で同じものを見ることになる。
+//
 // SDK を import せず引数で受け取る。ブラウザは同一オリジンに束ねた
 // public/vendor/entry.js を渡し、テストは npm の firebase/firestore を渡す。
 // こうしないと、ブラウザ向けバンドルを Node から読むことになってテストが書けない。
 
 /** Rules 側と同じ上限。UI でも同じ値を使う。 */
+import { compareTrackName } from './ids.mjs';
+
 export const MAX_TEXT = 60;
 
 /** Rules 側のクールダウン。UI で待ち時間を出すために公開する。 */
@@ -12,6 +17,13 @@ export const COOLDOWN_MS = 2000;
 
 /** 購読する件数。Rules の request.query.limit の上限と一致させる。 */
 export const PAGE = 50;
+
+/**
+ * 画面に出す並び。自分で付けた名前が先、既定の「Track A」は後。
+ *
+ * 元の配列は壊さない。購読の中身をそのまま渡してくる呼び出しがある。
+ */
+const sortTracks = (rows) => [...rows].sort((a, b) => compareTrackName(a.name, b.name));
 
 export class PostError extends Error {
   constructor(kind, cause) {
@@ -64,13 +76,22 @@ export function createEventBus(sdk, { db, uid }) {
     },
 
     /** トラックを名前順に購読する。運営の表はこの順で並ぶ。 */
+    /**
+     * トラックを並べて購読する。
+     *
+     * Firestore には名前順で取らせ、手元で並べ替える。
+     * 自分で付けた名前が先、既定の「Track A」は後。Rules は件数しか見ていないので、
+     * 問い合わせ側の `orderBy` は変えない（50件の切り取り方を変えないため）。
+     */
     watchTracks(eventId, onTracks, onError) {
       const q = query(collection(db, 'events', eventId, 'tracks'), orderBy('name'), limit(PAGE));
       return onSnapshot(q, (snap) => {
-        onTracks(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+        onTracks(sortTracks(snap.docs.map((d) => ({ id: d.id, ...d.data() }))));
       }, onError);
     },
 
+    // 取ってきたものをそのまま返す（並べ替えない）。画面には出ない経路で、
+    // 呼び出し側は件数と有無しか見ていない。
     getTracksOnce(eventId) {
       return getDocs(query(collection(db, 'events', eventId, 'tracks'), orderBy('name'), limit(PAGE)));
     },
