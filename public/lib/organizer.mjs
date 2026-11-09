@@ -412,16 +412,9 @@ export async function createOrganizer({ eventId, wantNew = false, random = () =>
     el('addTrack').addEventListener('click', () => addTrack(id, tracks));
 
     el('copyEvUrl').addEventListener('click', () => copy(eventUrlFor(id)));
-    // チラシに載せるのはこれ。刷った紙ではなく画像で渡す。
+    // QR は押したときに作る。画面に置いておく理由が無い。読むのは観客で、
+    // 運営がこの絵から読めることは何も無い。
     el('copyEvQr').addEventListener('click', () => copyQr(eventUrlFor(id), el('evName').textContent));
-    // QR は押したときに作る。画面には出さないので、持っておく理由が無い。
-    el('printEvQr').addEventListener('click', async () => {
-      try {
-        const url = eventUrlFor(id);
-        printQr(await qrSvg(url, 360), el('evName').textContent, url,
-          'スマホで読み取ると、トラックを選んでコメントを送れます');
-      } catch (e) { fail(`QRを作れない: ${e.code ?? e.message}`); }
-    });
 
     return { kind: 'detail', eventId: id, get tracks() { return tracks; } };
   }
@@ -691,29 +684,3 @@ async function qrPng(url, size = 1024) {
 const qrSvg = (url, width) =>
   QRCode.toString(url, { type: 'svg', errorCorrectionLevel: 'M', margin: 2, width });
 
-/**
- * QR だけの印刷用ウィンドウ。机に置ける紙にするのが目的なので、
- * スクリーンに QR を出して登壇を邪魔する必要がなくなる。
- */
-function printQr(svg, heading, url, note) {
-  const w = window.open('', '_blank');
-  if (!w) return;
-  w.document.write(`<!doctype html><meta charset="utf-8"><title>${esc(heading)} のQR</title>
-<style>
-  @page { margin: 12mm; }
-  body { margin:0; font:16px/1.6 -apple-system,"Hiragino Sans","Noto Sans JP",sans-serif;
-         display:grid; place-items:center; min-height:100vh; text-align:center; color:#111; }
-  h1 { font-size:1.7rem; margin:0 0 .2rem; }
-  p { margin:0 0 1.2rem; color:#555; }
-  svg { width:76mm; height:76mm; }
-  .url { margin-top:1rem; font:500 .85rem ui-monospace,Menlo,monospace; color:#333; word-break:break-all; }
-</style>
-<body><div><h1>${esc(heading)}</h1><p>${esc(note)}</p>${svg}
-<div class="url">${esc(url)}</div></div></body>`);
-  w.document.close();
-  w.focus();
-  w.print();
-}
-
-const esc = (s) => String(s).replace(/[&<>"']/g,
-  (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));

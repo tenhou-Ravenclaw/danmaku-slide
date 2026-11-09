@@ -266,37 +266,6 @@ await t('QRを画像としてコピーでき、読み取れる', async () => {
   await page.close();
 });
 
-await t('チラシ用QRが読み取れる', async () => {
-  // QR は画面に出さなくなった。刷られる紙のほうを読む。
-  // 運営が実際に配るのはこの紙で、画面の絵は誰も読み取らない。
-  const { page, eventId } = await makeEventInBrowser('QRの会', []);
-  const [sheet] = await Promise.all([
-    page.context().waitForEvent('page'),
-    page.click('#printEvQr'),
-  ]);
-  await sheet.waitForFunction(() => document.querySelector('svg') !== null, { timeout: 20000 });
-  assert(/QRの会/.test(await sheet.title()), await sheet.title());
-  const rgba = await sheet.evaluate(async () => {
-    const svg = document.querySelector('svg').outerHTML;
-    const img = new Image();
-    const url = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml' }));
-    await new Promise((res, rej) => { img.onload = res; img.onerror = rej; img.src = url; });
-    const size = 480, c = document.createElement('canvas');
-    c.width = c.height = size;
-    const x = c.getContext('2d');
-    x.fillStyle = '#fff'; x.fillRect(0, 0, size, size);
-    x.drawImage(img, 0, 0, size, size);
-    return { data: Array.from(x.getImageData(0, 0, size, size).data), size };
-  });
-  const jsQR = (await import('jsqr')).default;
-  const dec = jsQR(new Uint8ClampedArray(rgba.data), rgba.size, rgba.size);
-  assert(dec !== null, 'QR を読み取れなかった');
-  assert(dec.data.endsWith(`/e/${eventId}`), `読み取り結果が違う: ${dec.data}`);
-  // 配る URL は画面にも出ている。読み上げて渡すことがある。
-  assert((await page.textContent('#evUrl')).endsWith(`/e/${eventId}`), await page.textContent('#evUrl'));
-  await sheet.close(); await page.close();
-});
-
 await t('受付状況はイベントの面で、トラックごとに出る', async () => {
   // 一覧の表には「受付中 2 / 2」という要約を出していた。表ごと無くなったので、
   // 要約ではなくトラック1本ずつの状態で見る。数えるより正確で、押す場所と同じ所にある。
