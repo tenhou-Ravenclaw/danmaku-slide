@@ -1448,6 +1448,46 @@ await t('狭い画面でも本文が横にずれない', async () => {
   await day.page.close(); await org.page.close();
 });
 
+await t('イベント名の欄が、画面の広さに合わせて伸びる', async () => {
+  // 伸びないと、現実的な長さの名前でも欄の中で横スクロールになって一度に読めない。
+  // 以前は 1440px でも 360px でも 298px で固定だった。
+  const org = await makeEventInBrowser('学内LT大会 冬（第12回・2F ホール開催）', ['Track A']);
+  await org.page.waitForSelector('#evNameInput', { timeout: 20000 });
+
+  const at = async (w) => {
+    await org.page.setViewportSize({ width: w, height: 800 });
+    await org.page.waitForTimeout(150);
+    return org.page.evaluate(() => {
+      const e = document.getElementById('evNameInput');
+      return { w: Math.round(e.getBoundingClientRect().width),
+               cut: e.scrollWidth > e.clientWidth + 1 };
+    });
+  };
+  const wide = await at(1440);
+  // 本文の幅には上限があるので、画面を広げたぶんだけ伸びるわけではない。
+  // 見たいのは「行の余りを名前が取っていること」。開催日は 10rem で固定。
+  const share = await org.page.evaluate(() => {
+    const row = document.querySelector('.headrow').getBoundingClientRect().width;
+    const name = document.getElementById('evNameInput').getBoundingClientRect().width;
+    return name / row;
+  });
+  assert(share > 0.6, `名前が行の余りを取っていない: ${Math.round(share * 100)}%`);
+  assert(!wide.cut, `この長さの名前が切れている: ${wide.w}px`);
+
+  // 狭いときは開催日の欄と重ならず、折り返す
+  await org.page.setViewportSize({ width: 420, height: 800 });
+  await org.page.waitForTimeout(150);
+  const over = await org.page.evaluate(() => {
+    const a = document.getElementById('evNameInput').getBoundingClientRect();
+    const b = document.getElementById('evDateInput').getBoundingClientRect();
+    return a.right > b.left && a.bottom > b.top && a.top < b.bottom;
+  });
+  assert(!over, '狭い画面で名前と開催日が重なっている');
+
+  await org.page.setViewportSize({ width: 1280, height: 800 });
+  await org.page.close();
+});
+
 await browser.close();
 await capBrowser.close();
 for (const [st, name, msg] of rows) console.log(`  ${st} ${name}${msg ? '\n         -> ' + msg : ''}`);

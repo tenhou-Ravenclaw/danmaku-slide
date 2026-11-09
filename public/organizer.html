@@ -94,14 +94,16 @@
   h1.title.edit { display: flex; }
   #evNameInput {
     font: inherit; font-size: var(--t-2xl); font-weight: 800; letter-spacing: -.02em;
-    padding: .1rem .4rem; margin-left: -.4rem; width: 100%; max-width: 26rem;
+    padding: .1rem .4rem; margin-left: -.4rem; width: 100%;
     background: transparent; border: 1px solid transparent; border-radius: var(--radius-sm);
   }
   #evNameInput:hover { border-color: var(--line); }
   #evNameInput:focus { background: var(--surface); border-color: var(--line2); }
   /* 見出しと開催日はひと続き。離して置くと、どのイベントの日付か迷う。 */
   .headrow { display: flex; flex-wrap: wrap; gap: .5rem 1.25rem; align-items: flex-end; }
-  .headrow .who { flex: 0 1 auto; min-width: 0; }
+  /* 名前の欄は余りを全部取る。伸びないと、長い名前が欄の中で
+     横スクロールになって、一度に読めなくなる。 */
+  .headrow .who { flex: 1 1 auto; min-width: 0; }
   .headrow .when { flex: 0 0 10rem; }
 
   /* 配る。運営がこの画面に来る理由そのもの。
