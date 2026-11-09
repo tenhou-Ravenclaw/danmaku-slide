@@ -36,6 +36,8 @@ const invariants = [
   ['2秒のクールダウン',                   "duration.value(2, 's')"],
   ['createdAt のサーバ時刻強制',          'request.resource.data.createdAt == request.time'],
   ['クエリ件数の上限',                    'request.query.limit'],
+  // 一覧は自分のぶんだけ。これが消えると、匿名サインインで全イベントを辿れる（#104）。
+  ['イベントの一覧は自分のぶんだけ',      'allow list: if authed() && request.query.limit <= 50 && isMyEvent()'],
   ['引き継ぎコードの読み取り禁止',        'allow read: if false'],
   ['コメントの追記専用',                  'allow update, delete: if false'],
   ['ownerUid の書き換え禁止',             'request.resource.data.ownerUid == resource.data.ownerUid'],

@@ -1,7 +1,7 @@
 import { initializeTestEnvironment, assertFails, assertSucceeds } from '@firebase/rules-unit-testing';
 import {
   doc, setDoc, updateDoc, deleteDoc, getDoc, collection, getDocs,
-  query, limit, serverTimestamp, writeBatch, Timestamp
+  query, where, limit, serverTimestamp, writeBatch, Timestamp
 } from 'firebase/firestore';
 import { readFileSync } from 'node:fs';
 
@@ -26,6 +26,11 @@ await env.withSecurityRulesDisabled(async (ctx) => {
     name: '学内LT大会 冬', heldOn: '2026-12-12', ownerUid: 'staff', createdAt: Timestamp.now(),
   });
   await setDoc(doc(db, 'events/ev1/private/handoff'), { code: 'EVENT-CODE' });
+  // 他人のイベント。一覧が自分のぶんだけに絞られているかは、他人のものが
+  // 1件でも無いと確かめられない。テストの実行順に頼らないよう seed に置く。
+  await setDoc(doc(db, 'events/ev2'), {
+    name: '別の運営の会', heldOn: '2026-12-13', ownerUid: 'other', createdAt: Timestamp.now(),
+  });
   await setDoc(doc(db, 'events/ev1/tracks/tA'), {
     name: 'Track A', stopped: false, createdAt: Timestamp.now(),
   });
@@ -73,6 +78,22 @@ await t('EV owner でも ownerUid は奪えない',
 await t('EV 他人はイベントを消せない', () => assertFails(deleteDoc(doc(asStaff('attacker'), 'events/ev1'))));
 await t('EV 一覧の大量取得は落ちる',
   () => assertFails(getDocs(query(collection(asStaff('u1'), 'events'), limit(500)))));
+
+// 一覧は自分が作ったぶんだけ（#104）。
+// 絞っていない一覧が通ると、匿名サインインした誰かが全イベントを辿れる。
+await t('EV 匿名では全イベントを一覧できない',
+  () => assertFails(getDocs(query(collection(as('anon1'), 'events'), limit(50)))));
+await t('EV 絞っていない一覧は運営でも落ちる',
+  () => assertFails(getDocs(query(collection(asStaff('staff'), 'events'), limit(50)))));
+await t('EV 自分のイベントに絞った一覧は通る',
+  () => assertSucceeds(getDocs(query(collection(asStaff('staff'), 'events'),
+    where('ownerUid', '==', 'staff'), limit(50)))));
+await t('EV 他人のイベントに絞った一覧は落ちる',
+  () => assertFails(getDocs(query(collection(asStaff('attacker'), 'events'),
+    where('ownerUid', '==', 'staff'), limit(50)))));
+// 手伝う人の道（#103）。一覧には出ないが、控えから1件ずつ get で引ける。
+await t('EV 手伝う人はイベントを get で読める',
+  () => assertSucceeds(getDoc(doc(as('helper'), 'events/ev1'))));
 
 await t('EV 匿名ではイベントを作れない', () => assertFails(setDoc(doc(as('anon1'), 'events/byanon'), {
   name: '匿名の会', heldOn: '', ownerUid: 'anon1', createdAt: serverTimestamp() })));

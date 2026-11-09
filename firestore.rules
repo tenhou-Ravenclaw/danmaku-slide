@@ -29,8 +29,23 @@ service cloud.firestore {
         );
       }
 
+      /**
+       * 一覧に出るのは自分が作ったイベントだけ。
+       *
+       * list は候補の文書1件ごとに評価されるので、クエリが ownerUid で絞られて
+       * いなければ問い合わせごと落ちる。これが無いと、匿名サインインした誰かが
+       * 50件ずつページ送りして全イベントを辿れる。外から荒らすときの最初の一歩が
+       * そこなので、見つける道を閉じる。
+       *
+       * 手伝っているイベントはここに出てこない。運営画面は users/{uid}/joined の
+       * 控えから1件ずつ get で引いている（get は authed() のまま）。
+       *
+       * QR を読んだ観客は eventId を知っているので get で足りる。一覧は運営だけが使う。
+       */
+      function isMyEvent() { return resource.data.ownerUid == request.auth.uid; }
+
       allow get: if authed();
-      allow list: if authed() && request.query.limit <= 50;
+      allow list: if authed() && request.query.limit <= 50 && isMyEvent();
 
       allow create: if signedIn()
         && request.resource.data.keys().hasOnly(['name','heldOn','ownerUid','createdAt'])
