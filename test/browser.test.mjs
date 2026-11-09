@@ -14,7 +14,11 @@ const CONFIG = JSON.parse(readFileSync(new URL('../.firebase-config.json', impor
 
 let pass = 0, fail = 0;
 const rows = [];
+// 1件だけ見たいときがある。全部で5分かかるので、絞れないと直すたびに待つ。
+//   ONLY='全画面' npm run test:browser
+const ONLY = process.env.ONLY ?? '';
 async function t(name, fn) {
+  if (ONLY && !name.includes(ONLY)) return;
   try { await fn(); pass++; rows.push(['ok  ', name, '']); }
   catch (e) { fail++; rows.push([' NG ', name, String(e?.message ?? e).slice(0, 220)]); }
 }
@@ -968,6 +972,33 @@ await t('投稿が弾幕ページに流れる（通し）', async () => {
 });
 
 // --- 弾幕ページ ---------------------------------------------------------
+await t('全画面のあいだは操作バーを出さない', async () => {
+  // 投影に映るうえ、全画面中に押すものが無い。抜けるのは Esc。
+  const org = await makeEventInBrowser('全画面の会', ['Track A']);
+  const { page } = await open(`${HOST}/overlay.html?emu=1&e=${org.eventId}&t=a`);
+  await page.waitForSelector('#bar', { state: 'attached' });
+
+  // 入る前は出せる
+  await page.evaluate(() => { document.body.dataset.bar = 'show'; });
+  assert(await page.evaluate(() => getComputedStyle(document.getElementById('bar')).display) !== 'none',
+    '全画面でないのに出ない');
+
+  // 全画面に入ると、出す指示があっても描かれない
+  await page.evaluate(() => document.documentElement.requestFullscreen());
+  await page.waitForFunction(() => document.fullscreenElement !== null, { timeout: 10000 });
+  await page.evaluate(() => { document.body.dataset.bar = 'show'; });
+  assert(await page.evaluate(() => getComputedStyle(document.getElementById('bar')).display) === 'none',
+    '全画面でバーが出ている');
+
+  // 抜ければ戻る
+  await page.evaluate(() => document.exitFullscreen());
+  await page.waitForFunction(() => document.fullscreenElement === null, { timeout: 10000 });
+  await page.evaluate(() => { document.body.dataset.bar = 'show'; });
+  assert(await page.evaluate(() => getComputedStyle(document.getElementById('bar')).display) !== 'none',
+    '抜けてもバーが戻らない');
+  await page.close(); await org.page.close();
+});
+
 await t('透過シェルから開いたときは操作バーを出さない', async () => {
   const org = await makeEventInBrowser('透過の会', ['Track A']);
   const { page } = await open(`${HOST}/overlay.html?emu=1&transparent=1&e=${org.eventId}&t=a`);

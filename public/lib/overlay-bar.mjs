@@ -80,7 +80,9 @@ export function mountBar(overlay, { autoPick = false } = {}) {
 
   document.addEventListener('fullscreenchange', () => {
     el('full').textContent = overlay.screens.isFullscreen() ? '全画面をやめる' : '全画面にする';
-    showBar();
+    // 全画面に入ったときは出さない。入った合図として一瞬出しても、
+    // 投影に映るだけで誰の役にも立たない。抜けたときだけ出す。
+    if (!overlay.screens.isFullscreen()) showBar();
   });
 
   // コンソールから「スライドに流す」で来たときは、選択画面まで一気に出す

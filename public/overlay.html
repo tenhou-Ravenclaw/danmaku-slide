@@ -29,6 +29,9 @@
   }
   body[data-bar="show"] #bar { opacity: 1; pointer-events: auto; }
   html.transparent #bar, html.no-bar #bar { display: none; }
+  /* 全画面のあいだは出さない。投影に映るうえ、出す理由が無い。
+     抜けるのは Esc（ブラウザ共通）。抜ければ戻る。 */
+  html:fullscreen #bar { display: none; }
 
   #bar button, #bar select {
     padding: .5rem .85rem; border-radius: .5rem; font: inherit; font-weight: 600;
