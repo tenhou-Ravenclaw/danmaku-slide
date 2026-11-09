@@ -81,6 +81,19 @@ await t('運営はトラックを並べられる', async () => {
     `名前順になっていない: ${list.map((t) => t.name)}`);
 });
 
+await t('トラック名を直しても trackId は変わらない', async () => {
+  // 配るQRとリンクは trackId だけで出来ている。名前を直したときに ID が動くなら、
+  // 配った紙が死ぬ。名前を変えられるようにした前提がここ。
+  const staff = evBus('staff-rename');
+  await staff.createEvent('ev-trackname', { name: 'イベント' });
+  await staff.createTrack('ev-trackname', 'a', { name: 'Track A' });
+  await staff.renameTrack('ev-trackname', 'a', { name: '2F ホール' });
+  const rows = (await staff.getTracksOnce('ev-trackname')).docs
+    .map((d) => ({ id: d.id, name: d.data().name }));
+  assert(rows.length === 1 && rows[0].id === 'a' && rows[0].name === '2F ホール',
+    JSON.stringify(rows));
+});
+
 await t('運営以外はトラックを足せない', async () => {
   const staff = evBus('staff6'), outsider = evBus('outsider1');
   await staff.createEvent('ev-guard', { name: 'イベント' });

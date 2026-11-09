@@ -41,7 +41,9 @@ const invariants = [
   ['ownerUid の書き換え禁止',             'request.resource.data.ownerUid == resource.data.ownerUid'],
   ['createdAt の書き換え禁止',            'request.resource.data.createdAt == resource.data.createdAt'],
   ['更新できるフィールドの限定',          'affectedKeys()'],
-  ['トラックで動くのは受付の可否だけ',    "hasOnly(['stopped'])"],
+  // 名前も動かせるようにした（#61）。trackId は動かないので配ったQRは生きる。
+  // ここで見張るのは「動く面がこの2つより増えていないこと」。
+  ['トラックで動くのは受付の可否と名前だけ', "hasOnly(['stopped','name'])"],
   ['受付の開け閉めは運営だけ',            'allow update: if isEventStaff()'],
   ['トラックの形は固定',                  "hasOnly(['name','stopped','createdAt'])"],
   ['受付中でなければ受け付けない',        'get(trackPath()).data.stopped == false'],
@@ -51,6 +53,11 @@ for (const [label, needle] of invariants) {
   if (needle === null) continue;
   check(`${label}（${needle}）`, rules.includes(needle));
 }
+
+// name の形の検査は作成と更新の2か所に要る。片方だけになると、もう片方から
+// 空の名前や長すぎる名前が入る。1か所しか無い状態を「ある」と読まないよう、数で見る。
+check('トラック名の長さ上限が作成と更新の両方にある',
+  rules.split('request.resource.data.name.size() <= 40').length - 1 === 2);
 
 // 消したものが戻ってきていないか。登壇者に書き込ませる口は持たない。
 for (const gone of ['isTrackSpeaker', "'live'", 'sessionStartedAt', 'tracks/$(trackId)/operators']) {

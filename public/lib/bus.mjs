@@ -91,6 +91,17 @@ export function createEventBus(sdk, { db, uid }) {
       });
     },
 
+    /**
+     * 名前を直す。trackId は触らない。
+     *
+     * 打ち間違えたときに消して作り直させると、配り直しが要る。名前だけ直せば、
+     * 配るQRとリンクは trackId で出来ているのでそのまま生きる。
+     * 刷った紙に載った名前だけは古いまま残るので、刷り直すかは運営が決める。
+     */
+    renameTrack(eventId, trackId, { name }) {
+      return updateDoc(doc(db, 'events', eventId, 'tracks', trackId), { name });
+    },
+
     setEventHandoff(eventId, code) {
       return setDoc(doc(db, 'events', eventId, 'private', 'handoff'), { code });
     },

@@ -140,6 +140,7 @@ async function makeEventInBrowser(
 
 /**
  * 今日ひらくイベントを作る。作った時点で受付中なので、そのまま投稿できる。
+ * 日付を今日にするのは、タブに「・今日」が付く側を見るため。
  *
  * makeEventInBrowser との違いは開催日だけ。今日にすると当日の面（一覧の「今日」）に出て、
  * 受付の開け閉めができるようになる。
@@ -722,6 +723,56 @@ await t('トラックを削除できる', async () => {
     () => document.querySelectorAll('#tracks tr').length === 1, { timeout: 20000 });
   const left = await org.page.textContent('#tracks');
   assert(/Track B/.test(left) && !/Track A/.test(left), `残り方が変: ${left}`);
+  await org.page.close();
+});
+
+// 名前を直せる口は、行の中に入力欄を置かずに作る。配り物のボタンを探す手が
+// 入力欄に当たって打ち換えるのを防ぐため（「渡す相手ごとに…」が見ている不変条件）。
+const trackNameCell = (page, row = 0) =>
+  page.locator('#tracks tr').nth(row).locator('td').first();
+const trackNames = (page) => page.evaluate(() =>
+  [...document.querySelectorAll('#tracks tr td:first-child')].map((td) => td.textContent.trim()));
+
+await t('トラック名を押すとその場で直せる', async () => {
+  const org = await makeEventInBrowser('名前を直す会', ['Track A', 'Track B']);
+  const td = trackNameCell(org.page);
+  await td.locator('.rename').click();
+  await td.locator('input').fill('2F ホール');
+  await td.locator('input').press('Tab');
+  // 名前順に並び替わるので、並びには依らずに中身だけ見る。直したのは1行だけ。
+  await org.page.waitForFunction(() => [...document.querySelectorAll('#tracks tr td:first-child')]
+    .map((x) => x.textContent.trim()).sort().join(',') === '2F ホール,Track B', { timeout: 20000 });
+  // 直し終わったら入力欄は残さない
+  assert(await org.page.locator('#tracks tr input').count() === 0, '入力欄が残っている');
+  assert(org.errors.length === 0, `エラー: ${org.errors.join(' / ')}`);
+  await org.page.close();
+});
+
+await t('トラック名を空にしたら元に戻す', async () => {
+  // 空のまま離れると、行から名前が消えたように見える。イベント名と同じ直し方。
+  const org = await makeEventInBrowser('空にする会', ['Track A']);
+  const td = trackNameCell(org.page);
+  await td.locator('.rename').click();
+  await td.locator('input').fill('');
+  await td.locator('input').press('Tab');
+  await org.page.waitForFunction(
+    () => document.querySelector('#tracks tr td:first-child .rename') !== null, { timeout: 20000 });
+  assert((await trackNames(org.page)).join(',') === 'Track A', await trackNames(org.page));
+  await org.page.close();
+});
+
+await t('名前を直してもトラックのURLは変わらない', async () => {
+  // 名前を動かせるようにした前提。配ったQRとリンクが死ぬなら広げられない。
+  const org = await makeEventInBrowser('URL不変の会', ['Track A']);
+  const before = await speakerLink(org.page);
+  const td = trackNameCell(org.page);
+  await td.locator('.rename').click();
+  await td.locator('input').fill('2F ホール');
+  await td.locator('input').press('Tab');
+  await org.page.waitForFunction(() =>
+    document.querySelector('#tracks tr td:first-child')?.textContent.trim() === '2F ホール',
+    { timeout: 20000 });
+  assert(await speakerLink(org.page) === before, '名前を直したらリンクが変わった');
   await org.page.close();
 });
 
