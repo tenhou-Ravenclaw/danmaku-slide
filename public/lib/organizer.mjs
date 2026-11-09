@@ -412,6 +412,8 @@ export async function createOrganizer({ eventId, wantNew = false, random = () =>
     el('addTrack').addEventListener('click', () => addTrack(id, tracks));
 
     el('copyEvUrl').addEventListener('click', () => copy(eventUrlFor(id)));
+    // チラシに載せるのはこれ。刷った紙ではなく画像で渡す。
+    el('copyEvQr').addEventListener('click', () => copyQr(eventUrlFor(id), el('evName').textContent));
     // QR は押したときに作る。画面には出さないので、持っておく理由が無い。
     el('printEvQr').addEventListener('click', async () => {
       try {
@@ -472,12 +474,10 @@ export async function createOrganizer({ eventId, wantNew = false, random = () =>
           await copy(postUrlFor(eventId, t.id));
           say(`${t.name} の投稿URLをコピーしました`, 'ok');
         }, `${t.name} の投稿URLをコピー`),
-        button('QRを作る', 'btn sm toAudience', async () => {
-          try {
-            const url = postUrlFor(eventId, t.id);
-            printQr(await qrSvg(url, 360), t.name, url, 'スマホで読み取るとコメントを送れます');
-          } catch (e) { fail(`QRを作れない: ${e.code ?? e.message}`); }
-        }, `${t.name} の投稿QRを作って印刷`));
+        // 貼る先はチラシや掲示物。刷った紙ではなく画像が要る。
+        button('QRをコピー', 'btn sm toAudience',
+          () => copyQr(postUrlFor(eventId, t.id), t.name),
+          `${t.name} の投稿QRを画像としてコピー`));
       toAudience.append(audRow);
 
       const del = cell(tr);
@@ -628,10 +628,58 @@ export async function createOrganizer({ eventId, wantNew = false, random = () =>
     b.addEventListener('click', onClick);
     return b;
   }
+  /**
+   * QR の画像をコピーする。
+   *
+   * ClipboardItem には Blob ではなく Blob を返す Promise を渡す。
+   * 先に await して作ってから書こうとすると、Safari が「操作から離れた」と見て拒む。
+   *
+   * 画像を書けないブラウザがある。黙って諦めない。押したのに何も起きないのが
+   * いちばん困るので、そのときはファイルとして渡す。
+   */
+  async function copyQr(url, name) {
+    try {
+      await navigator.clipboard.write([new ClipboardItem({ 'image/png': qrPng(url) })]);
+      say(`${name} のQR画像をコピーしました`, 'ok');
+      return;
+    } catch { /* 書けない環境。下で保存に回す。 */ }
+    try {
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(await qrPng(url));
+      a.download = `${name}-qr.png`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+      say(`${name} のQRを画像として保存しました（この環境ではコピーできません）`, 'ok');
+    } catch (e) { fail(`QRを作れない: ${e.message}`); }
+  }
+
   async function copy(text) {
     try { await navigator.clipboard.writeText(text); say('コピーしました', 'ok'); }
     catch { fail('コピーできませんでした'); }
   }
+}
+
+/**
+ * QR を PNG にする。チラシやスライドに貼るためのもの。
+ *
+ * 1024px。チラシに 40mm で載せても十分に細かい。
+ * ベクタ（SVG）のほうが印刷の質は上だが、SVG はほとんどのデザインツールに貼れない。
+ */
+async function qrPng(url, size = 1024) {
+  const svg = await qrSvg(url, size);
+  const img = new Image();
+  // 外を参照しない絵なので、data: から読んでも canvas は汚れない。
+  img.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+  await img.decode();
+  const c = document.createElement('canvas');
+  c.width = c.height = size;
+  const g = c.getContext('2d');
+  // 透過のまま貼ると、暗い背景のスライドで QR が読めなくなる。白を敷く。
+  g.fillStyle = '#fff';
+  g.fillRect(0, 0, size, size);
+  g.drawImage(img, 0, 0, size, size);
+  return new Promise((done, stop) =>
+    c.toBlob((b) => (b ? done(b) : stop(new Error('画像にできない'))), 'image/png'));
 }
 
 /**

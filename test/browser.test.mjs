@@ -231,6 +231,41 @@ await t('登壇用リンクは合言葉を持たない', async () => {
   await org.page.close();
 });
 
+await t('QRを画像としてコピーでき、読み取れる', async () => {
+  // チラシや掲示物に貼るためのもの。刷った紙ではなく画像が要る。
+  // 貼った先で読めなければ意味が無いので、コピーしたものを読み戻して確かめる。
+  const { page, eventId } = await makeEventInBrowser('画像QRの会', ['Track A']);
+  await page.waitForSelector('#copyEvQr', { timeout: 20000 });
+  await page.click('#copyEvQr');
+  await page.waitForFunction(
+    () => /コピーしました|保存しました/.test(document.getElementById('msg')?.textContent ?? ''),
+    { timeout: 20000 });
+
+  const rgba = await page.evaluate(async () => {
+    const items = await navigator.clipboard.read();
+    const item = items.find((i) => i.types.includes('image/png'));
+    if (!item) return null;
+    const bmp = await createImageBitmap(await item.getType('image/png'));
+    const c = document.createElement('canvas');
+    c.width = bmp.width; c.height = bmp.height;
+    const x = c.getContext('2d');
+    // 透過のまま貼ると暗い背景で読めない。白が敷かれていることもここで見る。
+    x.drawImage(bmp, 0, 0);
+    return { data: Array.from(x.getImageData(0, 0, bmp.width, bmp.height).data), size: bmp.width };
+  });
+  assert(rgba !== null, 'クリップボードに画像が入っていない');
+  assert(rgba.size >= 512, `小さすぎる: ${rgba.size}px`);
+
+  const jsQR = (await import('jsqr')).default;
+  const dec = jsQR(new Uint8ClampedArray(rgba.data), rgba.size, rgba.size);
+  assert(dec !== null, 'コピーした画像から QR を読み取れない');
+  assert(dec.data.endsWith(`/e/${eventId}`), `読み取り結果が違う: ${dec.data}`);
+
+  // トラックごとのぶんも同じ形で配れる
+  await page.click('#tracks .btn.toAudience:nth-of-type(1)');
+  await page.close();
+});
+
 await t('チラシ用QRが読み取れる', async () => {
   // QR は画面に出さなくなった。刷られる紙のほうを読む。
   // 運営が実際に配るのはこの紙で、画面の絵は誰も読み取らない。
