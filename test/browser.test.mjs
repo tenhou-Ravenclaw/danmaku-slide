@@ -1576,6 +1576,32 @@ await t('イベント名の欄が、画面の広さに合わせて伸びる', as
   await org.page.close();
 });
 
+// 運営画面には確認なしで効く「全部止める」がある。他人のページに重ねて
+// 押させる手を潰した（#105）。ヘッダが付いているかではなく、ブラウザが
+// 実際に埋め込みを拒むかを見る。
+await t('運営画面は他人のページに埋め込めない', async () => {
+  const context = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  const page = await context.newPage();
+  await page.goto(`${HOST}/post.html`, { waitUntil: 'load' });
+
+  // iframe の出身は同じなので、読み込めていれば中の要素に手が届く。
+  const inFrame = await page.evaluate(async (host) => {
+    const f = document.createElement('iframe');
+    f.src = `${host}/organizer.html`;
+    document.body.appendChild(f);
+    await new Promise((r) => setTimeout(r, 2000));
+    try { return !!f.contentDocument?.getElementById('signIn'); } catch { return false; }
+  }, HOST);
+  assert(!inFrame, '運営画面が iframe の中で開けた');
+
+  // 対照。同じ目印を、埋め込みでなければ掴めること。
+  // これが無いと、目印を打ち間違えただけでも「拒めている」と読めてしまう。
+  await page.goto(`${HOST}/organizer.html`, { waitUntil: 'load' });
+  assert(await page.$('#signIn'), '目印そのものが無い（検査が空振りしている）');
+
+  await context.close();
+});
+
 await browser.close();
 await capBrowser.close();
 for (const [st, name, msg] of rows) console.log(`  ${st} ${name}${msg ? '\n         -> ' + msg : ''}`);
