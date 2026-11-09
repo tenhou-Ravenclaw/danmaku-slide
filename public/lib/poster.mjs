@@ -84,8 +84,10 @@ export async function createPoster({ eventId, trackId, now = () => Date.now() } 
     el('sendLabel').textContent = waitMs > 0 ? `あと${Math.ceil(waitMs / 1000)}秒` : '送信';
     // 秒数が変わるまでの間も動かす。止まっていると壊れていると思われる。
     // 満ちるまでが待ち時間。溜まり切ったら押せる。
+    // 満ちたままにして、帯は遷移なしで消す（巻き戻しを見せない）。
+    el('send').dataset.wait = waitMs > 0 ? '1' : '';
     el('send').style.setProperty('--p',
-      String(waitMs > 0 ? 1 - waitMs / COOLDOWN_MS : 0));
+      String(waitMs > 0 ? 1 - waitMs / COOLDOWN_MS : 1));
 
     if (over > 0) note(reasonText('too-long', { over }), 'bad');
     else if (track && track.stopped) note(reasonText('stopped'), 'wait');
@@ -105,10 +107,11 @@ export async function createPoster({ eventId, trackId, now = () => Date.now() } 
   }
 
   /**
-   * 送れた1件を左へ逃がす。
+   * 送れた1件を上へ逃がす。
    *
    * 入力欄が空になるだけだと、消えたのか送れたのかが分からない。
-   * スライドの上で起きることと同じ向きに動かして、送った先を指す。
+   * 横に流すと弾幕の向きに揃うが、投稿する人はスライドを見ていない。
+   * 手元から離れて出ていく向きにする。
    */
   function fly(text) {
     const ta = el('text');
