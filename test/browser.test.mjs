@@ -118,7 +118,7 @@ const TODAY = new Date().toISOString().slice(0, 10);
  */
 async function makeEventInBrowser(
   name, trackNames = ['Track A'], heldOn = '2026-12-12', scheme = null, ctx = null) {
-  const r = await open(`${HOST}/organizer.html?emu=1`,
+  const r = await open(`${HOST}/organizer.html?new=1&emu=1`,
     ctx ? { ctx } : (scheme ? { scheme } : {}));
   // 運営が作ったものを同じ人として触れるよう、ctx を返して使い回す
   await signInAsOrganizer(r.page);
@@ -467,13 +467,50 @@ await t('イベント詳細のまとめ操作は、表から離れている', as
   await org.page.close();
 });
 
+await t('サインインすると、いちばん近いイベントが開いている', async () => {
+  // 作るのは普通1回きりで、開くのは何度もある。作る画面を最初に出すと、
+  // 当日いちばんよくやることが、いちばん手間のかかる位置に来る。
+  const soon = await makeEventInBrowser('来年の会', ['Track A'], '2027-12-12');
+  const today = await makeEventInBrowser('今日の会', ['Track A'], TODAY, null, soon.page.context());
+
+  const r = await open(`${HOST}/organizer.html?emu=1`, { ctx: soon.page.context() });
+  await r.page.waitForFunction((id) =>
+    new URL(location.href).searchParams.get('e') === id, today.eventId, { timeout: 25000 });
+  await r.page.waitForSelector('#tracks .pill', { timeout: 20000 });
+  assert(/今日の会/.test(await r.page.textContent('#evName')), await r.page.textContent('#evName'));
+
+  await r.page.close(); await today.page.close(); await soon.page.close();
+});
+
+await t('いちばん近いイベントが開いても、2本目を作りにいける', async () => {
+  // 自動で開く仕組みを入れると、`＋` が素のURLのままでは近いイベントに
+  // 連れ戻されて、2本目以降を作れなくなる。そこを塞いだことを見る。
+  const org = await makeEventInBrowser('1本目の会', ['Track A'], TODAY);
+  const r = await open(`${HOST}/organizer.html?emu=1`, { ctx: org.page.context() });
+  await r.page.waitForSelector('#newTab', { timeout: 25000 });
+  await r.page.click('#newTab');
+  await r.page.waitForSelector('#newEventName', { state: 'visible', timeout: 20000 });
+  assert(await r.page.isVisible('#newEventName'), '作る画面に行けない');
+  await r.page.close(); await org.page.close();
+});
+
+await t('イベントが1本も無ければ、作る画面が出る', async () => {
+  // 最初に使う人がここに来る。開くものが無いのに作る画面を出さないと、
+  // 何もできない面で止まる。
+  const r = await open(`${HOST}/organizer.html?emu=1`);
+  await signInAsOrganizer(r.page);
+  assert(await r.page.isVisible('#newEventName'), '作る画面が出ない');
+  assert(new URL(r.page.url()).searchParams.get('e') === null, r.page.url());
+  await r.page.close();
+});
+
 await t('終わったイベントはタブに並ばない', async () => {
   // 開く理由が無いものを並べ続けると、使うほどタブが溢れる。
   // ただし消しもしない。「終わった」は開催日から導いているだけなので、
   // 日付を打ち間違えたイベントが黙って消えると作り直すしかなくなる。
   const past = await makeEventInBrowser('去年の会', [], '2020-01-01');
   const soon = await makeEventInBrowser('来年の会', [], '2027-12-12', null, past.page.context());
-  const list = await open(`${HOST}/organizer.html?emu=1`, { ctx: past.page.context() });
+  const list = await open(`${HOST}/organizer.html?new=1&emu=1`, { ctx: past.page.context() });
 
   await list.page.waitForFunction(
     () => document.querySelectorAll('#tabs .tab').length === 1, { timeout: 25000 });
@@ -1258,7 +1295,7 @@ await t('終了したイベントもキーボードで開ける', async () => {
   // tabIndex と Enter が抜けていた（マウスでしか開けなかった）。
   // タブは本物のリンクなので、作りが分かれようが無い。それを確かめる。
   const org = await makeEventInBrowser('過去の会', [], '2020-01-01');
-  const list = await open(`${HOST}/organizer.html?emu=1`, { ctx: org.page.context() });
+  const list = await open(`${HOST}/organizer.html?new=1&emu=1`, { ctx: org.page.context() });
   await list.page.waitForSelector('#showPast:not(.hidden)', { timeout: 25000 });
   await list.page.click('#showPast');
   const tab = list.page.locator(`#tabs .tab[data-event="${org.eventId}"]`);

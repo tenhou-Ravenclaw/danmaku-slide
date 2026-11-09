@@ -13,7 +13,7 @@ const steps = [
   ['開発依存の脆弱性',         'npm', ['audit', '--audit-level=high']],
   ['Security Rules（69件）',   'npm', ['run', '--silent', 'test:rules']],
   ['Firestore 境界（18件）',   'npm', ['run', '--silent', 'test:bus']],
-  ['実ブラウザ（69件）',       'npm', ['run', '--silent', 'test:browser']],
+  ['実ブラウザ（72件）',       'npm', ['run', '--silent', 'test:browser']],
   ['Chrome 拡張（16件）',       'npm', ['run', '--silent', 'test:ext']],
 ];
 

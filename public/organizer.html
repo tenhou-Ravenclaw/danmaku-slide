@@ -224,7 +224,7 @@
        分けるのをやめたので問いごと消えた。 -->
   <nav id="tabBar" class="tabs hidden" aria-label="イベント">
     <div id="tabs" class="tabstrip"></div>
-    <a id="newTab" class="tab add" href="./organizer.html" aria-label="イベントを作る">＋</a>
+    <a id="newTab" class="tab add" href="./organizer.html?new=1" aria-label="イベントを作る">＋</a>
     <span class="tabsp"></span>
     <!-- 終わったものは並べない。ただし「終わった」は開催日から導いているだけなので、
          日付を打ち間違えたイベントが戻ってこなくなる。戻り口だけ残す。 -->
@@ -442,6 +442,9 @@
     const { createOrganizer } = await import('./lib/organizer.mjs');
     window.__organizer = await createOrganizer({
       eventId: new URLSearchParams(location.search).get('e'),
+      // `＋` から来たときは、いちばん近いイベントを開かない。
+      // 開いてしまうと2本目以降を作りにいけなくなる。
+      wantNew: new URLSearchParams(location.search).get('new') !== null,
     });
   } catch (e) { show(e?.message ?? e); }
 </script>

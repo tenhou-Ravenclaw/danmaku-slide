@@ -21,7 +21,7 @@ const todayIso = () => new Date().toISOString().slice(0, 10);
 /** 受付中か。stopped が無いものも受付中として扱う（作った直後がこれ）。 */
 const isOpen = (t) => t.stopped !== true;
 
-export async function createOrganizer({ eventId, random = () => Math.random() } = {}) {
+export async function createOrganizer({ eventId, wantNew = false, random = () => Math.random() } = {}) {
   const el = (id) => document.getElementById(id);
   const msg = el('msg');
 
@@ -105,7 +105,9 @@ export async function createOrganizer({ eventId, random = () => Math.random() } 
     events = createEventBus(sdk, { db, uid });
     el('tabBar').classList.remove('hidden');
     tabs();
-    if (eventId) detail(eventId); else create();
+    if (eventId) detail(eventId);
+    else if (wantNew) create();
+    else openNearest();
   });
 
   return { kind: 'gate' };
@@ -168,6 +170,44 @@ export async function createOrganizer({ eventId, random = () => Math.random() } 
 
     a.append(name, when);
     return a;
+  }
+
+  /**
+   * サインイン直後に、いちばん近いイベントを開く。
+   *
+   * 作るのは普通1回きりで、開くのは何度もある。作る画面を最初に出すと、
+   * 当日いちばんよくやることが、いちばん手間のかかる位置に来る。
+   *
+   * URL を `?e=` に付け替えるので、再読み込みしても同じものが出る。
+   * 履歴には積まない（`replace`）。戻るで「どこでもない画面」に戻れても意味が無い。
+   */
+  function openNearest() {
+    // 1本目が届いた時点で決める。待ち続けると、作る画面が一瞬出てから飛ぶことになる。
+    //
+    // 購読を止める関数は、最初の呼び出しより後に代入されることがある。
+    // そのまま `unwatch?.()` を書くと、1回目だけ止め損ねて二重に走る。
+    let done = false;
+    let unwatch = null;
+    unwatch = events.watchMyEvents((rows) => {
+      if (done) return;
+      done = true;
+      unwatch?.();
+      const pick = nearestEvent(rows);
+      // 1本も無ければ作る画面。最初に使う人がここに来る。
+      if (!pick) { create(); return; }
+      location.replace(withEnv(`./organizer.html?e=${encodeURIComponent(pick.id)}`));
+    }, (e) => { fail(`イベントを読めない: ${e.code ?? e.message}`); create(); });
+  }
+
+  /**
+   * いちばん近いイベント。今日 → これから近い順 → 終わったもののうち新しい順。
+   *
+   * 日付なしは `splitByDate` が「これから」に置く。まだ日が決まっていないものなので、
+   * 終わったものより手前に来るのは正しい。
+   */
+  function nearestEvent(rows) {
+    const { upcoming, past } = splitByDate(rows);
+    return upcoming[0] ?? past[0] ?? null;
   }
 
   // --- イベントを作る ---------------------------------------------------
