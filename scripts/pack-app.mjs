@@ -37,6 +37,14 @@ const paths = await packager({
   appBundleId: 'net.xpadev.danmaku-slide',
   appVersion: app.version,
   buildVersion: stamp,
+  // 実行ファイル名は ASCII にする。日本語名の exe は、mac の zip で固めて
+  // Windows で展開するとファイル名が化ける。見た目の名前（タイトルバーや
+  // プロパティ）は win32metadata が持つ。macOS の .app 名は name のままで変わらない。
+  executableName: 'danmaku-slide',
+  win32metadata: {
+    ProductName: '弾幕スライド',
+    FileDescription: 'スライドに弾幕を重ねる',
+  },
   // 運営のリンクから起動できるようにする。手でIDを貼らずに済む。
   protocols: [{ name: '弾幕スライド', schemes: ['danmaku'] }],
   // 書き出す対象を絞る。node_modules は要らない（依存を持っていない）。
