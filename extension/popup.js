@@ -12,7 +12,14 @@ const el = (id) => document.getElementById(id);
 }
 const msg = (t, k = '') => { el('msg').textContent = t; el('msg').dataset.kind = k; };
 
-/** 運営のリンク（?e=&t=）から2つのIDを取り出す。 */
+/**
+ * 運営のリンク（?e=&t=）から2つのIDを取り出す。
+ *
+ * 同じ解析が透過シェルにもある（desktop/main.cjs の parseTrackId）。モジュール
+ * 形式が違う（あちらは CJS、こちらは拡張の popup が素で読む）ので共有できない。
+ * 許容する形を変えるときは両方直す。許容は ids.mjs の ID 生成（ALPHABET）を
+ * 包含していること。
+ */
 function parseLink(input) {
   const s = String(input ?? '').trim();
   if (!s) return null;

@@ -29,6 +29,11 @@ function overlayUrl({ eventId, trackId }) {
  *
  * 手で貼られるもの（ID / 投稿URL）と、運営のリンクから渡ってくるもの
  * （danmaku://track/xxx）のどちらも通す。前者は人が、後者は OS が渡してくる。
+ *
+ * 同じ解析が拡張にもある（extension/popup.js の parseLink）。モジュール形式が
+ * 3つに割れている（ここは CJS、popup.js は拡張が素で読む、content script だけ
+ * esbuild で束ねる）ので共有できない。許容する形を変えるときは両方直す。
+ * 許容は ids.mjs の ID 生成（ALPHABET）を包含していること。
  */
 function parseTrackId(input) {
   const s = String(input ?? '').trim();
