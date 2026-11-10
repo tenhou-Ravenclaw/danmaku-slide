@@ -47,6 +47,9 @@ const invariants = [
   // ここで見張るのは「動く面がこの2つより増えていないこと」。
   ['トラックで動くのは受付の可否と名前だけ', "hasOnly(['stopped','name'])"],
   ['受付の開け閉めは運営だけ',            'allow update: if isEventStaff()'],
+  // isEventStaff が匿名を通すと、正コードを握った使い捨て匿名 UID が受付を
+  // 落として回れる（#112）。signedIn() が消えていないことを見張る。
+  ['受付の開け閉めは匿名では通さない',    'return signedIn() && ('],
   ['トラックの形は固定',                  "hasOnly(['name','stopped','createdAt'])"],
   ['受付中でなければ受け付けない',        'get(trackPath()).data.stopped == false'],
   // 登壇者に書き込む先を残さない。合言葉が何も開けない状態で残るのを防ぐ。

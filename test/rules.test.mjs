@@ -143,6 +143,8 @@ await t('TR 41文字の名前には変えられない',
   () => assertFails(updateDoc(doc(asStaff('staff'), 'events/ev1/tracks/tRen'), { name: 'あ'.repeat(41) })));
 await t('TR 文字列でない名前には変えられない',
   () => assertFails(updateDoc(doc(asStaff('staff'), 'events/ev1/tracks/tRen'), { name: 42 })));
+await t('TR stopped を bool 以外には更新できない',
+  () => assertFails(updateDoc(doc(asStaff('staff'), 'events/ev1/tracks/tRen'), { stopped: 'no' })));
 await t('TR 運営以外は名前を変えられない',
   () => assertFails(updateDoc(doc(asStaff('attacker'), 'events/ev1/tracks/tRen'), { name: 'のっとり' })));
 await t('TR 名前を変えるついでに createdAt は動かせない',
@@ -186,15 +188,26 @@ await t('HO owner 自身も読めない',
 await t('HO owner 以外は private に書けない',
   () => assertFails(setDoc(doc(asStaff('attacker'), 'events/ev1/private/handoff'), { code: 'X' })));
 await t('HO 誤コードでは運営を手伝えない',
-  () => assertFails(setDoc(doc(as('helper'), 'events/ev1/operators/helper'), { code: 'WRONG' })));
+  () => assertFails(setDoc(doc(asStaff('helper'), 'events/ev1/operators/helper'), { code: 'WRONG' })));
 await t('HO 正コードで運営を手伝える',
-  () => assertSucceeds(setDoc(doc(as('helper'), 'events/ev1/operators/helper'), { code: 'EVENT-CODE' })));
+  () => assertSucceeds(setDoc(doc(asStaff('helper'), 'events/ev1/operators/helper'), { code: 'EVENT-CODE' })));
 await t('HO 運営を手伝う人は投稿を止められる',
-  () => assertSucceeds(updateDoc(doc(as('helper'), 'events/ev1/tracks/tA'), { stopped: true })));
+  () => assertSucceeds(updateDoc(doc(asStaff('helper'), 'events/ev1/tracks/tA'), { stopped: true })));
 await t('HO 運営を手伝う人は投稿を開けられる',
-  () => assertSucceeds(updateDoc(doc(as('helper'), 'events/ev1/tracks/tA'), { stopped: false })));
+  () => assertSucceeds(updateDoc(doc(asStaff('helper'), 'events/ev1/tracks/tA'), { stopped: false })));
 await t('HO 手伝う人でも匿名ではイベント名を変えられない',
   () => assertFails(updateDoc(doc(as('helper'), 'events/ev1'), { name: '手伝いから' })));
+
+// operator はサインインした運営だけ（#112）。正コードを握った匿名の使い捨て UID で
+// 受付を落として回る線を塞ぐ。匿名は登録もできず、仕込まれていても書けない。
+await t('HO 匿名では正コードでも operator になれない',
+  () => assertFails(setDoc(doc(as('anonhelper'), 'events/ev1/operators/anonhelper'), { code: 'EVENT-CODE' })));
+await env.withSecurityRulesDisabled(async (ctx) => {
+  // operators に匿名 uid を直接仕込んで、「operator でも匿名なら書けない」を確かめる。
+  await setDoc(doc(ctx.firestore(), 'events/ev1/operators/anonop'), { code: 'EVENT-CODE' });
+});
+await t('HO operator でも匿名では受付を開け閉めできない（signedIn 必須）',
+  () => assertFails(updateDoc(doc(as('anonop'), 'events/ev1/tracks/tA'), { stopped: true })));
 
 // --- JN: 入ったイベントの控え -------------------------------------------
 //
