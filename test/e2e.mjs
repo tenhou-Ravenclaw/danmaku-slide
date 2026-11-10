@@ -11,7 +11,7 @@
 //
 // ここで見られないこと：投稿が実際に流れる通しの確認。
 // 運営の操作には Google サインインが要り、自動化できない。
-// そこは CHECKLIST.md の手動確認が受け持つ。
+// そこは実機での手動確認が受け持つ。
 import { readFileSync } from 'node:fs';
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInAnonymously } from 'firebase/auth';
