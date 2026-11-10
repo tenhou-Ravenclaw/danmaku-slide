@@ -50,6 +50,11 @@
     ],
     "redirects": [
       {
+        "source": "/app.html",
+        "destination": "https://github.com/tenhou-Ravenclaw/danmaku-slide/releases/latest",
+        "type": 302
+      },
+      {
         "source": "/vendor/lib.js",
         "destination": "/vendor/entry.js",
         "type": 302

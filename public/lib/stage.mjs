@@ -61,10 +61,8 @@ export async function createStage({ eventId, trackId, now = () => Date.now() } =
 
   el('openApp').href = appUrlFor(eventId, trackId);
   el('browserWay').href = withEnv(`${overlayUrlFor(eventId, trackId)}&capture=1`);
-  // 入手ページにもトラックを渡す。入れている余裕が無い人に、
-  // そのままブラウザで流す道を出せる。
-  el('getApp').href = withEnv(
-    `./app.html?e=${encodeURIComponent(eventId)}&t=${encodeURIComponent(trackId)}`);
+  // 「アプリを入手」は GitHub Release へ飛ばす（/app.html は Release へのリダイレクト）。
+  // 入れる余裕が無い人の逃げ道は、上の browserWay（ブラウザで流す）がそのまま持つ。
 
   // --- どこに流しているか ------------------------------------------------
   // idle    まだ決めていない
