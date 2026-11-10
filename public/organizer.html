@@ -185,6 +185,18 @@
     display: flex; flex-wrap: wrap; gap: 1rem; align-items: center;
     justify-content: space-between; }
   .danger-zone > * { min-width: 0; }
+
+  /* もとは要素のインライン style だったもの。値は変えずクラスへ寄せた。
+     既存クラスの指定を上書きするものは、クラスを2つ重ねて特異度を確保する。 */
+  .card.create-card { padding: 1rem; }
+  .card.join-card   { padding: 1.1rem; }
+  .card.leave-card  { padding: 1rem 1.1rem; margin-top: 3rem; }
+  .field.create-date { flex: 0 1 13rem; }
+  #newTrackName { flex: 0 1 14rem; }
+  .join-card .why { margin-bottom: .9rem; }
+  .zone-title { font-weight: 700; }
+  .zone-note  { font-size: var(--t-sm); }
+  .helper-only .zone-note { margin: .2rem 0 .7rem; }
 </style>
 
 <div class="topbar">
@@ -263,11 +275,11 @@
       <p class="lead">トラックを並べて、観客と登壇者にリンクを配ります。</p>
     </div>
 
-    <div class="card" style="padding:1rem">
+    <div class="card create-card">
       <div class="row">
         <label class="field grow"><span>イベント名</span>
           <input id="newEventName" placeholder="例：学内LT大会 冬" maxlength="60" autocomplete="off"></label>
-        <label class="field" style="flex:0 1 13rem"><span>開催日</span>
+        <label class="field create-date"><span>開催日</span>
           <input id="newEventDate" type="date" min="2000-01-01" max="2099-12-31"></label>
         <button id="createEvent" class="btn primary">イベントを作る</button>
       </div>
@@ -281,8 +293,8 @@
       <h1 class="title">このイベントを手伝いますか</h1>
       <p class="lead" id="joinName">—</p>
     </div>
-    <div class="card" style="padding:1.1rem">
-      <div class="why" style="margin-bottom:.9rem">
+    <div class="card join-card">
+      <div class="why">
         入ると、<strong>受付の開け閉めとトラック名の変更</strong>ができます。<br>
         トラックやイベントを消せるのは、作った人だけです。
       </div>
@@ -375,7 +387,7 @@
         <tfoot><tr id="addTrackRow">
           <td colspan="4">
             <div class="row">
-              <input id="newTrackName" maxlength="40" style="flex:0 1 14rem" autocomplete="off"
+              <input id="newTrackName" maxlength="40" autocomplete="off"
                      aria-label="足すトラックの名前">
               <button id="addTrack" class="btn primary sm">追加</button>
             </div>
@@ -401,9 +413,9 @@
 
     <!-- 消す操作は配り物の操作から離して置く。隣り合っていると押し間違える。 -->
     <!-- 手伝う人の出口。消すのではなく、自分が外れるだけ。 -->
-    <section class="card helper-only" style="padding:1rem 1.1rem; margin-top:3rem">
-      <div style="font-weight:700">このイベントを手伝うのをやめる</div>
-      <div class="muted" style="font-size:var(--t-sm); margin:.2rem 0 .7rem">
+    <section class="card helper-only leave-card">
+      <div class="zone-title">このイベントを手伝うのをやめる</div>
+      <div class="muted zone-note">
         あなたの一覧から外れます。イベントもトラックも消えません。
       </div>
       <button id="leaveEvent" class="btn">手伝うのをやめる</button>
@@ -411,8 +423,8 @@
 
     <section class="danger-zone">
       <div>
-        <div style="font-weight:700">このイベントを削除する</div>
-        <div class="muted" style="font-size:var(--t-sm)">
+        <div class="zone-title">このイベントを削除する</div>
+        <div class="muted zone-note">
           トラックと一緒に消えます。配ったQRとリンクはすべて使えなくなります。</div>
       </div>
       <button id="deleteEvent" class="btn danger">削除する</button>
