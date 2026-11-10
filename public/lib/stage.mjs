@@ -79,7 +79,7 @@ export async function createStage({ eventId, trackId, now = () => Date.now() } =
     },
     handoff: {
       title: 'アプリに渡しました',
-      sub: 'アプリの窓が開いているか確かめてください',
+      sub: 'アプリの窓が出ていれば、そのまま流れています',
       mark: circle(),
       acts: true, ask: true, openApp: false, done: false,
     },
@@ -124,13 +124,13 @@ export async function createStage({ eventId, trackId, now = () => Date.now() } =
   // アプリに渡したかどうかは、こちらからは確かめられない。
   // Electron は別の窓で開くので opener が無く、合図が返らない。
   //
-  // 前はここで終わりにしていた。渡したことしか言えないので、アプリを持っていない
-  // 人は「アプリに渡しました」のまま止まる。成功したときと失敗したときの画面が
-  // 同じで、本人にも次にやることが分からない。確かめられないなら本人に訊く。
+  // 以前は「開きましたか？」と確認を挟んでいたが、問いが煩わしい。渡したあとは
+  // 落ち着いた一文に留め、窓が出てこなかった人のための逃げ道（アプリを入手 /
+  // ブラウザで流す）と短い案内だけを handoff で見せる。成功と失敗で画面が同じに
+  // ならないよう、「流しています」とは言わない（circle のまま・title は「渡しました」）。
   el('openApp').addEventListener('click', () => {
     if (flow !== 'live') setFlow('handoff');
   });
-  el('flowOk').addEventListener('click', () => setFlow('live', { sub: 'アプリの窓で流しています' }));
 
   // 同じタブで遷移するとこの画面が消え、合図も返らなくなる。
   // 別の窓で開いて opener を残す。
