@@ -83,7 +83,7 @@ npm run dev           # エミュレータ（Firestore / Auth / Hosting）
 npm run shell         # 透過ウィンドウシェル（貼り方C）
 
 npm run review        # ローカルレビュー一式（CI と同じもの）
-npm run test:e2e      # 本番の Rules とインデックスの確認（11件、本番には書かない）
+npm run test:e2e      # 本番の Rules とインデックスの確認（本番には書かない）
 
 npm run preview       # 使い捨てURLにプレビュー配信
 npm run deploy        # Hosting と Rules を本番へ
@@ -91,18 +91,21 @@ npm run deploy        # Hosting と Rules を本番へ
 
 ## テスト
 
-| | |
+| 何を見るか | |
 |---|---|
-| 純粋ロジック | 76件 |
-| 透過シェルの設定 | 37件 |
-| Security Rules | 61件（エミュレータ） |
-| Firestore 境界 | 17件 |
-| 実ブラウザ | 60件 |
-| Chrome 拡張 | 16件 |
-| 本番のインデックスと Rules | 11件 |
+| 純粋ロジック | 弾幕の配置・描画・ID・切り出し（`node --test`） |
+| 透過シェルの設定 | Electron のウィンドウ設定とリンクの解釈 |
+| Security Rules | エミュレータに対して Rules の論理を網羅する |
+| Firestore 境界 | `bus` の読み書きがルールと噛み合うか |
+| 実ブラウザ | Playwright + エミュレータで画面の挙動 |
+| Chrome 拡張 | 拡張を読み込んだ Chromium で差し込みを確認 |
+| 本番のインデックスと Rules | デプロイ済みの本番で複合インデックスを検査 |
 
-ほかに Rules の不変条件ガード26件、秘密情報の履歴スキャン、依存の脆弱性を
-配信物と開発ツールで基準を分けて見ている。詳しくは [CONTRIBUTING.md](CONTRIBUTING.md)。
+ほかに Rules の不変条件ガード、秘密情報の履歴スキャン、依存の脆弱性を配信物と
+開発ツールで基準を分けて見ている。詳しくは [CONTRIBUTING.md](CONTRIBUTING.md)。
+
+件数は固定で書かない（増減のたびに文書がずれる）。`npm run review` が全部まとめて
+回し、各スイートの実数を出す。
 
 Rules のテストには JDK が必要（`brew install openjdk`）。
 

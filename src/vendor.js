@@ -8,7 +8,7 @@ export {
   getAuth, signInAnonymously, onAuthStateChanged, connectAuthEmulator,
   GoogleAuthProvider, signInWithPopup, signOut,
   // エミュレータでの検証用。本番の画面からは呼ばない。
-  signInWithEmailAndPassword, createUserWithEmailAndPassword,
+  createUserWithEmailAndPassword,
 } from 'firebase/auth';
 export {
   initializeFirestore,

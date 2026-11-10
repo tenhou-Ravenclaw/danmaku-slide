@@ -121,8 +121,8 @@ Firestore は書き込みをまずローカルに適用し、サーバに拒否�
 `firestore.rules` が設計そのもので、`test/rules.test.mjs` が「本当にそう守れているか」の証拠。
 
     npm install
-    npm run test:rules    # エミュレータ / 61件
-    npm run test:e2e      # 本番 / 11件
+    npm run test:rules    # エミュレータ
+    npm run test:e2e      # 本番
 
 エミュレータと本番の両方が通る状態を維持する。Rules を触ったら両方を見る。
 

@@ -23,8 +23,8 @@ PR を立てる前に全部通す。
 ```bash
 npm run config        # 初回と Firebase 設定の変更時だけ
 npm run lint          # 不変条件ガード + 秘密情報スキャン（CI と同じもの）
-npm run test:rules    # Security Rules（エミュレータ / 56件）
-npm run test:e2e      # Security Rules（本番 / 15件）
+npm run test:rules    # Security Rules（エミュレータ）
+npm run test:e2e      # Security Rules（本番）
 ```
 
 `lint:secrets` には gitleaks が必要（`brew install gitleaks`）。
@@ -62,15 +62,17 @@ go install github.com/xpadev-net/gh-review-hook/cmd/gh-review-hook@latest
 
 | ジョブ | 内容 |
 |---|---|
-| 弾幕エンジンのテスト | `node --test` で 76 件 |
-| 透過シェルの設定 | `node --test` で 37 件（Electron のウィンドウ設定とリンクの解釈） |
-| Firestore のテスト（Rules と境界） | エミュレータで Rules 61 件 + 境界 17 件 |
-| 実ブラウザでの検証 | Playwright + エミュレータで 56 件 |
+| 弾幕エンジンのテスト | `node --test`（弾幕の配置・描画・ID・切り出し） |
+| 透過シェルの設定 | `node --test`（Electron のウィンドウ設定とリンクの解釈） |
+| Firestore のテスト（Rules と境界） | エミュレータで Rules と `bus` の境界 |
+| 実ブラウザでの検証 | Playwright + エミュレータで画面の挙動 |
 | Rules の不変条件と生成物のガード | テストモードの Rules の混入、守りの欠落、生成物の追跡を機械で落とす |
 | 秘密情報スキャン | gitleaks で **履歴** を見る（一度コミットして消した鍵も対象） |
 | 依存の脆弱性 | 配信物は moderate 以上で落とす / 開発ツールは high 以上で落とす |
 
-Chrome 拡張（16 件）と本番の e2e（11 件）は CI に入れていない。
+各スイートの件数はここに焼かない（増減のたびにずれる）。`npm run review` が実数を出す。
+
+Chrome 拡張と本番の e2e は CI に入れていない。
 前者は拡張を読み込んだ Chromium が要り、後者は本番に触るため。
 どちらも `npm run review` と `npm run test:e2e` で手元から回す。
 

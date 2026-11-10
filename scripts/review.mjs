@@ -4,17 +4,19 @@
 // CI が使えないときでも、この1コマンドが通ったことが判断の根拠になる。
 import { spawnSync } from 'node:child_process';
 
+// 件数はラベルに焼かない。実行前には分からないし、各ランナー（node --test /
+// エミュレータ）が実数を出す。文書と二重に持つとドリフトする（#115）。
 const steps = [
-  ['純粋ロジック（82件）',     'npm', ['run', '--silent', 'test:unit']],
-  ['透過シェル（38件）',       'npm', ['run', '--silent', 'test:shell']],
+  ['純粋ロジック',             'npm', ['run', '--silent', 'test:unit']],
+  ['透過シェル',               'npm', ['run', '--silent', 'test:shell']],
   ['Rules の不変条件と生成物', 'npm', ['run', '--silent', 'lint:rules']],
   ['秘密情報（履歴）',         'npm', ['run', '--silent', 'lint:secrets']],
   ['本番依存の脆弱性',         'npm', ['audit', '--omit=dev', '--audit-level=moderate']],
   ['開発依存の脆弱性',         'npm', ['audit', '--audit-level=high']],
-  ['Security Rules（77件）',   'npm', ['run', '--silent', 'test:rules']],
-  ['Firestore 境界（18件）',   'npm', ['run', '--silent', 'test:bus']],
-  ['実ブラウザ（77件）',       'npm', ['run', '--silent', 'test:browser']],
-  ['Chrome 拡張（16件）',       'npm', ['run', '--silent', 'test:ext']],
+  ['Security Rules',           'npm', ['run', '--silent', 'test:rules']],
+  ['Firestore 境界',           'npm', ['run', '--silent', 'test:bus']],
+  ['実ブラウザ',               'npm', ['run', '--silent', 'test:browser']],
+  ['Chrome 拡張',              'npm', ['run', '--silent', 'test:ext']],
 ];
 
 const results = [];

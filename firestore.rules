@@ -70,9 +70,13 @@ service cloud.firestore {
       }
 
       // 運営を手伝う人。イベント単位で登録する。
+      //
+      // 登録は signedIn()。イベントとトラックは当日まで残るので、端末を変えたら
+      // 失う匿名のまま運営の操作を預けない。正コードを握った使い捨ての匿名 UID が
+      // 受付を落として回る線を、ここで閉じる（コードだけでは operator になれない）。
       match /operators/{uid} {
         allow read: if false;
-        allow create: if authed()
+        allow create: if signedIn()
           && uid == request.auth.uid
           && request.resource.data.keys().hasOnly(['code'])
           && request.resource.data.code ==
@@ -89,9 +93,15 @@ service cloud.firestore {
           return /databases/$(db)/documents/events/$(eventId)/tracks/$(trackId);
         }
 
-        /** 運営。イベントの持ち主と、手伝う人。 */
+        /**
+         * 運営。イベントの持ち主と、手伝う人。
+         *
+         * signedIn()。受付の開け閉めは運営だけの操作なので、匿名では通さない。
+         * イベントの update も signedIn() を要求しているので、同じ「運営だけの
+         * 書き込み」であるトラックの update もここで揃える。
+         */
         function isEventStaff() {
-          return authed() && (
+          return signedIn() && (
             get(eventPath()).data.ownerUid == request.auth.uid ||
             exists(/databases/$(db)/documents/events/$(eventId)/operators/$(request.auth.uid))
           );
@@ -131,6 +141,9 @@ service cloud.firestore {
           && request.resource.data.name is string
           && request.resource.data.name.size() > 0
           && request.resource.data.name.size() <= 40
+          // 作るときと同じく、受付の可否は bool だけ。stopped 以外を
+          // 受け付けないのは affectedKeys で担うが、型は作成と揃えて見る。
+          && request.resource.data.stopped is bool
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['stopped','name']);
 
         allow delete: if signedIn() && get(eventPath()).data.ownerUid == request.auth.uid;
