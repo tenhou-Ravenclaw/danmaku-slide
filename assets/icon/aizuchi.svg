@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img">
+  <title>Aizuchi — スライドの上を流れる相槌</title>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#242e56"/>
+      <stop offset="1" stop-color="#121730"/>
+    </linearGradient>
+    <radialGradient id="beam" cx="0.5" cy="0.32" r="0.75">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.10"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <!-- 地: 暗転した会場 -->
+  <rect width="512" height="512" rx="116" fill="url(#bg)"/>
+  <rect width="512" height="512" rx="116" fill="url(#beam)"/>
+
+  <!-- スライド(投影面) -->
+  <rect x="96" y="146" width="320" height="232" rx="20" fill="#0c1022" opacity="0.35" transform="translate(0 8)"/>
+  <rect x="96" y="146" width="320" height="232" rx="20" fill="#f7f4ec"/>
+  <rect x="128" y="162" width="124" height="18" rx="9" fill="#232b4a" opacity="0.9"/>
+  <rect x="128" y="300" width="184" height="12" rx="6" fill="#d4cebc"/>
+  <rect x="128" y="326" width="140" height="12" rx="6" fill="#ddd7c6"/>
+
+  <!-- 弾幕: 右から左へ流れる相槌 -->
+  <!-- 先行コメント(いちばん進んでいる) -->
+  <rect x="58" y="178" width="150" height="44" rx="22" fill="#ffb84d"/>
+  <rect x="226" y="193" width="52" height="14" rx="7" fill="#ffb84d" opacity="0.5"/>
+  <rect x="296" y="193" width="30" height="14" rx="7" fill="#ffb84d" opacity="0.25"/>
+
+  <!-- 主役: 相槌の吹き出し -->
+  <rect x="150" y="240" width="200" height="56" rx="28" fill="#ff6b4a"/>
+  <path d="M 186 292 L 168 320 L 216 294 Z" fill="#ff6b4a"/>
+  <circle cx="205" cy="268" r="11" fill="#fffdf8"/>
+  <circle cx="250" cy="268" r="11" fill="#fffdf8"/>
+  <circle cx="295" cy="268" r="11" fill="#fffdf8"/>
+
+  <!-- 画面に入ってきたばかりのコメント -->
+  <rect x="304" y="322" width="156" height="44" rx="22" fill="#45c4b8"/>
+</svg>
