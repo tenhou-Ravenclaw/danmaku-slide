@@ -45,7 +45,13 @@ const manifest = {
     'https://*.googleapis.com/*',
     ...(forTest || forDiag ? ['http://127.0.0.1/*', 'http://localhost/*'] : []),
   ],
-  action: { default_popup: 'popup.html', default_title: '弾幕スライド' },
+  icons: { 16: 'icon-16.png', 32: 'icon-32.png', 128: 'icon-128.png' },
+  action: {
+    default_popup: 'popup.html',
+    default_title: '弾幕スライド',
+    // ツールバーは小さいので、単色グリフのほうが読める
+    default_icon: { 16: 'glyph-16.png', 32: 'glyph-32.png' },
+  },
   background: { service_worker: 'background.js' },
   // 発表中は全画面でツールバーが出ないので、アイコンを押せない。
   // キーボードから状態を呼び出せるようにする。
@@ -61,6 +67,12 @@ mkdirSync(outDir, { recursive: true });
 // テスト用の出力先には、生成物でないファイルもコピーしておく
 if (forTest || forDiag) for (const f of ['popup.html', 'popup.js', 'background.js'])
   copyFileSync(`extension/${f}`, `${outDir}/${f}`);
+// アイコンは assets/icon/png から。管理画面/ストアは色付き、ツールバーは単色グリフ。
+for (const [dst, src] of [
+  ['icon-16.png', 'aizuchi-16.png'], ['icon-32.png', 'aizuchi-32.png'],
+  ['icon-128.png', 'aizuchi-128.png'],
+  ['glyph-16.png', 'aizuchi-glyph-16.png'], ['glyph-32.png', 'aizuchi-glyph-32.png'],
+]) copyFileSync(`assets/icon/png/${src}`, `${outDir}/${dst}`);
 writeFileSync(`${outDir}/manifest.json`, JSON.stringify(manifest, null, 2) + '\n');
 
 const r = await build({

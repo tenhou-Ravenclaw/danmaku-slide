@@ -10,6 +10,7 @@
     "review": "node scripts/review.mjs",
     "dev": "firebase emulators:start",
     "shell": "electron desktop/main.cjs",
+    "icons": "node scripts/gen-icons.mjs",
     "pack:app": "node scripts/pack-app.mjs",
     "lint:rules": "node scripts/lint-rules.mjs",
     "lint:secrets": "gitleaks git . --redact --verbose --no-banner",

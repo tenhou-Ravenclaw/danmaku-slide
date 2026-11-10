@@ -38,6 +38,9 @@ const paths = await packager({
   appBundleId: 'net.xpadev.danmaku-slide',
   appVersion: app.version,
   buildVersion: stamp,
+  // アプリアイコン。拡張子は packager が OS ごとに付ける（mac=.icns / win=.ico）。
+  // 生成は scripts/gen-icons.mjs（assets/icon/png から束ねる）。
+  icon: 'assets/icon/aizuchi',
   // 実行ファイル名は ASCII にする。日本語名の exe は、mac の zip で固めて
   // Windows で展開するとファイル名が化ける。見た目の名前（タイトルバーや
   // プロパティ）は win32metadata が持つ。macOS の .app 名は name のままで変わらない。

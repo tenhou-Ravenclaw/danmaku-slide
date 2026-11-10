@@ -14,6 +14,8 @@ public/firebase-config.js
 public/vendor/
 extension/content.js
 extension/manifest.json
+extension/icon-*.png
+extension/glyph-*.png
 danmaku-slide-extension.zip
 .ext-test/
 .ext-diag/
