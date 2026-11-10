@@ -10,6 +10,7 @@ export const DEFAULTS = {
   lineHeight: 52,  // 行の高さ(px)
   waitMs: 3000,    // 行が空くのを待つ上限(ms)。超えたら捨てる
   topMargin: 8,    // 上端の余白(px)
+  maxActive: 30,   // 同時に画面へ出す最大本数。超えた分は待機→waitMsで捨てる
 };
 
 /**
@@ -19,6 +20,11 @@ export const DEFAULTS = {
  * 過ぎている行にだけ入れられる。入れられなければ待機列に回し、waitMs を
  * 超えたら捨てる。捨てるのは、待たせ続けると登壇者の画面が過去のコメントで
  * 埋まり、いま来ているコメントが見えなくなるため。
+ *
+ * 同時に出す本数には maxActive の上限がある。行は横に何本も詰められるので、
+ * 上限が無いと画面全体が弾幕で覆われ、下敷きのスライドが読めなくなる
+ * （#72 の飽和テストで確認）。上限を超えた分は待機列に回り、ふだんの流量では
+ * 上限に当たらない。混みすぎたときだけ効く天井。
  */
 export class DanmakuFlow {
   constructor(options = {}) {
@@ -28,6 +34,7 @@ export class DanmakuFlow {
     this.lineHeight = o.lineHeight;
     this.waitMs = o.waitMs;
     this.topMargin = o.topMargin;
+    this.maxActive = o.maxActive;
 
     this.width = 0;
     this.height = 0;
@@ -111,6 +118,9 @@ export class DanmakuFlow {
 
   /** 空いている行を探して入れる。入れられなければ false。 */
   #place(item, now) {
+    // 同時本数の上限。超えていれば置かない（待機に回る）。
+    // 行は横に詰められるので、上限が無いと画面がスライドごと覆われる（#72）。
+    if (this.active.length >= this.maxActive) return false;
     const lane = this.#pickLane(now);
     if (lane === -1) return false;
     item.lane = lane;

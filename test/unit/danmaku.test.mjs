@@ -159,6 +159,35 @@ test('待たせすぎたものは捨てる', () => {
   assert.equal(f.pendingCount, 0);
 });
 
+test('既定では同時に30本までしか出さない', () => {
+  // 行は横に詰められるので、上限が無いと画面がスライドごと覆われる（#72）。
+  assert.equal(DEFAULTS.maxActive, 30);
+});
+
+test('同時本数の上限で頭打ちになり、超過分は待機に回る', () => {
+  // 行はたっぷりあるが上限で止まることを見たいので、上限を小さくして確かめる。
+  const f = flow({ maxActive: 5 });
+  for (let i = 0; i < 5; i++) assert.equal(f.add(c('あ', 200), 0), 'placed');
+  assert.equal(f.add(c('あ', 200), 0), 'queued', '上限を超えても置いてしまう');
+  assert.equal(f.activeCount, 5);
+  assert.equal(f.pendingCount, 1);
+});
+
+test('上限で待たせた分は、流れが抜けて空けば入る', () => {
+  const f = flow({ maxActive: 1, waitMs: 1e9 });
+  f.add(c('あ', 300), 0);           // 1本流す
+  assert.equal(f.add(c('あ', 300), 0), 'queued');  // 上限1なので待機
+  assert.equal(f.activeCount, 1);
+  // 1本目が左端を抜けると active から外れ、空いた枠に待機分が入る。
+  // step は「待機を捌く→抜けたものを外す」の順なので、空いた枠が使われるのは次フレーム。
+  const outMs = ((W + 300) / DEFAULTS.speed) * 1000;
+  f.step(outMs + 1);                // ここで1本目が外れる
+  f.step(outMs + 2);                // 空いた枠に待機分が入る
+  assert.equal(f.activeCount, 1, '抜けた分が入れ替わっていない');
+  assert.equal(f.pendingCount, 0);
+  assert.equal(f.dropped, 0);
+});
+
 test('待機列は古い順に捌かれる', () => {
   // 空く行が1本しかない状況を作る。全行を同じ幅で埋めると全行が同時に空いて
   // 待機中のものが一斉に流れてしまい、順序が観測できない。
