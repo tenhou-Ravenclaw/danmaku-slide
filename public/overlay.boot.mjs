@@ -22,6 +22,7 @@ try {
     hud,
     eventId: q.get('e'),
     trackId: q.get('t'),
+    test: q.get('test') === '1',
   });
   window.__overlay = overlay;
   mountBar(overlay, { autoPick: q.get('capture') === '1' });

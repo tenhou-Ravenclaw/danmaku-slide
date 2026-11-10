@@ -44,6 +44,13 @@ test('画面の一覧が出る', async () => {
   assert.ok(n >= 1, `画面が出ていない: ${n}`);
 });
 
+test('確認用のテスト弾のチェックが既定でオンで出ている', async () => {
+  // 投稿が来るまで画面は空なので、透過・最前面・位置を確かめる確認弾。
+  assert.ok(await setup.isVisible('#testShot'), '確認弾のチェックが無い');
+  assert.ok(await setup.evaluate(() => document.getElementById('testShot').checked),
+    '確認弾が既定でオフになっている');
+});
+
 test('不正なトラックIDは弾いて理由を出す', async () => {
   await setup.fill('#track', 'a b c d');
   await setup.click('#go');
@@ -82,6 +89,13 @@ test('重ねるウィンドウが透過・枠なし・最前面で作られる',
   assert.ok(!props.minimizable && !props.maximizable, '最小化・最大化できてしまう');
   // 透過そのものは作った後から読み戻せない。設定は parse.test.mjs で見ている。
   assert.ok(props.bounds.width > 0 && props.bounds.height > 0, `大きさが変: ${JSON.stringify(props.bounds)}`);
+});
+
+test('流したとき overlay の URL に test=1 が乗る（確認弾が既定オン）', async () => {
+  // 投稿が来るまで画面は空なので、透過・最前面・位置を確かめる確認弾。
+  // チェックは既定オンなので、直前の start で test=1 が付いているはず。
+  const url = await app.evaluate(() => global.__lastOverlayUrl);
+  assert.match(url ?? '', /[?&]test=1\b/, `overlay に test=1 が無い: ${url}`);
 });
 
 test('弾幕を出し始めても設定ウィンドウは消えない', async () => {

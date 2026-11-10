@@ -76,6 +76,15 @@ test('弾幕ページのURLは透過とHUD非表示を付ける', () => {
   assert.equal(u.searchParams.get('t'), 'a');
   assert.equal(u.searchParams.get('transparent'), '1');
   assert.equal(u.searchParams.get('hud'), '0');
+  // 既定ではテスト弾は付けない
+  assert.equal(u.searchParams.get('test'), null);
+});
+
+test('test を指定すると確認用のテスト弾を付ける', () => {
+  const on = new URL(overlayUrl({ eventId: 'ev123', trackId: 'a' }, { test: true }));
+  assert.equal(on.searchParams.get('test'), '1');
+  const off = new URL(overlayUrl({ eventId: 'ev123', trackId: 'a' }, { test: false }));
+  assert.equal(off.searchParams.get('test'), null);
 });
 
 test('起動時の引数から danmaku:// を拾う', () => {

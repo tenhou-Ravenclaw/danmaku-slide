@@ -1127,6 +1127,28 @@ await t('再読み込みしても溜まっていた分は流れない', async ()
   await page.close(); await org.page.close();
 });
 
+await t('test=1 で起動すると確認用のテスト弾が流れる', async () => {
+  // 投稿が来るまで画面は空なので、透過・最前面・位置を登壇者が確かめられる確認弾。
+  const org = await makeLiveEvent('確認弾の会', ['Track A']);
+  const { page, errors } = await open(`${HOST}/overlay.html?emu=1&test=1&e=${org.eventId}&t=a`);
+  // 投稿は一切していないのに、テスト弾で流れ始める
+  await page.waitForFunction(
+    () => (window.__overlay?.flow?.activeCount ?? 0) > 0, { timeout: 20000 });
+  assert(await drawnPixels(page) > 0, 'テスト弾が描かれていない');
+  assert(errors.length === 0, `エラー: ${errors.join(' / ')}`);
+  await page.close(); await org.page.close();
+});
+
+await t('test を付けなければテスト弾は流れない', async () => {
+  const org = await makeLiveEvent('確認弾なしの会', ['Track A']);
+  const { page } = await open(`${HOST}/overlay.html?emu=1&e=${org.eventId}&t=a`);
+  await page.waitForFunction(
+    () => /Track A/.test(document.getElementById('hud')?.textContent ?? ''), { timeout: 20000 });
+  await sleep(1500);
+  assert(await page.evaluate(() => window.__overlay.flow.activeCount) === 0, 'テスト弾が勝手に流れた');
+  await page.close(); await org.page.close();
+});
+
 await t('スライドを取り込むと下敷きとして描かれる', async () => {
   const org = await makeEventInBrowser('合成の会', ['Track A']);
   const { page, ctx } = await openCapturing(`${HOST}/overlay.html?emu=1&e=${org.eventId}&t=a`);

@@ -55,6 +55,10 @@
   .kv dd { margin:0; font-size:.85rem;
            font-family:ui-monospace, SFMono-Regular, Menlo, "Courier New", monospace; }
 
+  .check { display:flex; align-items:center; gap:.5rem; font-size:.8rem; color:var(--ink2);
+           margin:0; cursor:pointer; }
+  .check input { width:auto; accent-color:var(--accent); cursor:pointer; }
+
   .keys { margin:0; font-size:.75rem; color:var(--muted); line-height:1.9; }
   .keys a { color:var(--accent); }
   kbd { background:var(--surface2); border:1px solid var(--line2); border-bottom-width:2px;
@@ -99,6 +103,11 @@
     <label for="display">流す画面</label>
     <select id="display"></select>
   </div>
+
+  <label class="check idle" for="testShot">
+    <input type="checkbox" id="testShot" checked>
+    流し始めに確認用のテスト弾を一度流す
+  </label>
 
   <p id="msg" data-kind=""></p>
 
@@ -158,7 +167,7 @@
   async function start() {
     // 手で貼る経路は変えない。受け取ったぶんも parseTrackId が受け付ける形で渡す。
     const track = received ? `${received.eventId} ${received.trackId}` : $('track').value;
-    const r = await window.shell.start({ track, displayId: $('display').value });
+    const r = await window.shell.start({ track, displayId: $('display').value, test: $('testShot').checked });
     if (!r.ok) { msg(r.reason, 'bad'); return false; }
     msg('');
     $('liveText').textContent = `${r.trackId} を流しています`;

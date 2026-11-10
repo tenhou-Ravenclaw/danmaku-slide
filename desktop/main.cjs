@@ -15,12 +15,14 @@ let setupWin = null;
 let overlayWin = null;
 let pendingTrack = null;   // リンクから渡ってきたトラック
 
-function overlayUrl({ eventId, trackId }) {
+function overlayUrl({ eventId, trackId }, { test = false } = {}) {
   const u = new URL('/overlay.html', ORIGIN);
   u.searchParams.set('e', eventId);
   u.searchParams.set('t', trackId);
   u.searchParams.set('transparent', '1');
   u.searchParams.set('hud', '0');       // 投影に映るので既定では出さない
+  // 起動直後に確認用の弾を一度流す。透過・最前面・位置を登壇者が自分で確かめられる。
+  if (test) u.searchParams.set('test', '1');
   return u.toString();
 }
 
@@ -165,7 +167,7 @@ function pickDisplay(displays, displayId, primaryId) {
     ?? null;
 }
 
-function createOverlayWindow(track, display) {
+function createOverlayWindow(track, display, { test = false } = {}) {
   const { x, y, width, height } = display.bounds;
 
   overlayWin = new BrowserWindow(overlayWindowOptions({ x, y, width, height }));
@@ -182,7 +184,11 @@ function createOverlayWindow(track, display) {
   // スライドにも設定ウィンドウにも手が届かなくなる。
   // forward は残す。将来この窓に出すものができたとき、hover が死んでいると困る。
   overlayWin.setIgnoreMouseEvents(true, { forward: true });
-  overlayWin.loadURL(overlayUrl(track));
+  const url = overlayUrl(track, { test });
+  // 重ねるページの読み込み先はテスト環境だと到達不能で、webContents.getURL() が
+  // commit まで空になる。読み込んだ URL をそのまま控えて、テストから確かめられるようにする。
+  global.__lastOverlayUrl = url;
+  overlayWin.loadURL(url);
   overlayWin.on('closed', () => { overlayWin = null; });
   return overlayWin;
 }
@@ -227,14 +233,14 @@ app.whenReady().then(() => {
     primary: d.id === screen.getPrimaryDisplay().id,
   })));
 
-  ipcMain.handle('start', (_e, { track, displayId }) => {
+  ipcMain.handle('start', (_e, { track, displayId, test = false }) => {
     const target = parseTrackId(track);
     if (!target) return { ok: false, reason: '運営からのリンクを貼ってください' };
     const displays = screen.getAllDisplays();
     const onto = pickDisplay(displays, displayId, screen.getPrimaryDisplay().id);
     if (!onto) return { ok: false, reason: '映せる画面が見つかりません' };
     overlayWin?.close();
-    createOverlayWindow(target, onto);
+    createOverlayWindow(target, onto, { test });
     // 設定ウィンドウは隠さない。止めるボタンがこの中にしか無いので、隠すと
     // 「出すには止める、止めるには出す」になって手が無くなる。
     moveSetupAway(displays, onto);

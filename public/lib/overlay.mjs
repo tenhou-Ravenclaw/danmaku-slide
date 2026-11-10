@@ -7,7 +7,7 @@ import { connect } from './app.mjs';
 import * as capture from './capture.mjs';
 import * as screens from './screens.mjs';
 
-export function createOverlay({ canvas, hud, video = null, eventId, trackId }) {
+export function createOverlay({ canvas, hud, video = null, eventId, trackId, test = false }) {
   const flow = new DanmakuFlow();
   const renderer = new Renderer(canvas);
   const state = { status: '接続中', track: null, error: null, dropped: 0 };
@@ -129,10 +129,35 @@ export function createOverlay({ canvas, hud, video = null, eventId, trackId }) {
     }, (e) => fail(`トラックを読めない: ${e.code ?? e.message}`));
   }
 
+  /**
+   * 起動直後に確認用の弾を一度だけ流す。
+   *
+   * 投稿が来るまで画面は空なので、透過・最前面・投影先・位置が合っているかを
+   * 登壇者が自分だけで確かめられない。重ね始めに数本だけ流して、見えることを示す。
+   * 本物の投稿と混同しないよう「テスト表示」と分かる文面にする。実データが来たら
+   * 自然に混ざって流れ去る。描画はシェルに持たせない原則があるので、ここで流す。
+   */
+  function runTestBurst() {
+    const lines = [
+      'テスト表示 ✓ ここに弾幕が流れます',
+      '最前面に出ていますか？',
+      '位置とサイズは合っていますか？',
+      'このテストは数秒で消えます',
+      '投稿が届くと本物のコメントに変わります',
+    ];
+    lines.forEach((text, i) => {
+      // 少しずつ間を空けて入れる。一斉だと行が足りず重なって読めない。
+      setTimeout(() => {
+        flow.add({ id: `__test-${i}`, text, width: renderer.measure(text) }, performance.now());
+      }, i * 450);
+    });
+  }
+
   fit();
   window.addEventListener('resize', fit);
   raf = requestAnimationFrame(frame);
   paintHud();
+  if (test) runTestBurst();
   start();
 
   // --- 貼り方B: スライドを取り込む --------------------------------------
