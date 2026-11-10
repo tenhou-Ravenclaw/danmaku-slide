@@ -71,8 +71,7 @@ function deliverTrack(target) {
 
 function createSetupWindow() {
   setupWin = new BrowserWindow({
-    // 操作をボタンにしたぶん縦に伸びる。resizable: false なので、
-    // 足りないと「終了する」が窓の外に出たまま掴めなくなる。
+    // resizable: false なので、高さが足りないとボタンが窓の外に出たまま掴めなくなる。
     width: 520, height: 560, resizable: false,
     title: '弾幕スライド',
     backgroundColor: '#0b0b0f',
@@ -83,7 +82,9 @@ function createSetupWindow() {
     // 読み込みの前に送っても届かない。開いた時点で渡す。
     if (pendingTrack) setupWin.webContents.send('track', pendingTrack);
   });
-  setupWin.on('closed', () => { setupWin = null; });
+  // 終了ボタンは置いていない。この窓を閉じる＝アプリを終える。
+  // 閉じたまま生かすと、Dock も隠れているので戻る道が1つも無くなる。
+  setupWin.on('closed', () => { setupWin = null; app.quit(); });
   return setupWin;
 }
 
@@ -238,7 +239,6 @@ app.whenReady().then(() => {
   });
 
   ipcMain.handle('stop', () => { overlayWin?.close(); setupWin?.show(); return { ok: true }; });
-  ipcMain.handle('quit', () => { app.quit(); return { ok: true }; });
   ipcMain.handle('openExternal', (_e, url) => shell.openExternal(url));
   ipcMain.handle('origin', () => ORIGIN);
 

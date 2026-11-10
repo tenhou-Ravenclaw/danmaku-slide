@@ -129,11 +129,12 @@ test('弾幕ウィンドウはクリックを必ず下へ通す', async () => {
     'undefined', '切り替える口が残っている');
 });
 
-test('終了する操作がボタンとして出ている', async () => {
-  // 本当に終わらせると後の項目が回らないので、押せる場所と口があることまで見る。
-  // 終われるかどうかは CHECKLIST.md で人が見る。
-  assert.ok(await setup.isVisible('#quit'), '終了するボタンが無い');
-  assert.ok(await setup.evaluate(() => typeof window.shell.quit === 'function'), '終了の口が無い');
+test('終了ボタンは置いていない', async () => {
+  // 終了はウィンドウを閉じるか ⌘⇧X。ボタンを無くしたので、renderer 向けの
+  // quit の口も外してある（残すと使い道の無い口だけが開いたままになる）。
+  assert.equal(await setup.evaluate(() => !!document.getElementById('quit')), false, '終了ボタンが残っている');
+  assert.equal(await setup.evaluate(() => typeof window.shell.quit),
+    'undefined', '終了の口が残っている');
 });
 
 test('終了のキーが登録されている', async () => {
@@ -146,13 +147,36 @@ test('終了のキーが登録されている', async () => {
   assert.ok(!keys.gone, '切り替えのキーが残っている');
 });
 
-test('やめると重ねるウィンドウが消えて設定に戻る', async () => {
-  await setup.click('#halt');
+test('「流すのをやめる」で重ねるウィンドウが消える（設定画面には戻らない）', async () => {
+  // オンオフはその場で切り替える。登壇中に一瞬だけ消したいとき、
+  // 設定画面を経由させない。
+  await setup.click('#toggle');
   await setup.waitForFunction(
     () => document.body.dataset.running !== '1', { timeout: 10000 });
   const left = await app.evaluate(({ BrowserWindow }) =>
     BrowserWindow.getAllWindows().filter((w) => w.isAlwaysOnTop()).length);
   assert.equal(left, 0, `残っている: ${left}`);
+  assert.equal(await setup.evaluate(() => document.body.dataset.view), 'live',
+    '設定画面に戻ってしまった');
+  assert.equal(await setup.textContent('#toggle'), 'スライドに流す');
+});
+
+test('もう一度押すと同じ設定のまま流し直せる', async () => {
+  await setup.click('#toggle');
+  await setup.waitForFunction(
+    () => document.body.dataset.running === '1', { timeout: 10000 });
+  assert.match(await setup.textContent('#liveText'), /を流しています$/);
+  assert.equal(await setup.textContent('#toggle'), '流すのをやめる');
+});
+
+test('「設定を変更する」で止まって設定画面に戻る', async () => {
+  await setup.click('#config');
+  await setup.waitForFunction(
+    () => document.body.dataset.view !== 'live', { timeout: 10000 });
+  const left = await app.evaluate(({ BrowserWindow }) =>
+    BrowserWindow.getAllWindows().filter((w) => w.isAlwaysOnTop()).length);
+  assert.equal(left, 0, `重ねるウィンドウが残っている: ${left}`);
+  assert.ok(await setup.isVisible('#track'), '貼る欄が戻っていない');
 });
 
 test('リンクから渡ってきたトラックを入力欄に差し込まない', async () => {
@@ -176,9 +200,9 @@ test('受け取ったリンクは貼らずにそのまま流し始められる',
   await setup.waitForFunction(
     () => document.body.dataset.running === '1', { timeout: 10000 });
   assert.match(await setup.textContent('#liveText'), /^a を/);
-  await setup.click('#halt');
+  await setup.click('#config');
   await setup.waitForFunction(
-    () => document.body.dataset.running !== '1', { timeout: 10000 });
+    () => document.body.dataset.view !== 'live', { timeout: 10000 });
 });
 
 test('届いたリンクが違っていたら、手で貼る欄に戻せる', async () => {
@@ -196,7 +220,18 @@ test('届いたリンクが違っていたら、手で貼る欄に戻せる', as
   await setup.waitForFunction(
     () => document.body.dataset.running === '1', { timeout: 10000 });
   assert.match(await setup.textContent('#liveText'), /^b を/, '受け取ったぶんが残っている');
-  await setup.click('#halt');
+  await setup.click('#config');
   await setup.waitForFunction(
-    () => document.body.dataset.running !== '1', { timeout: 10000 });
+    () => document.body.dataset.view !== 'live', { timeout: 10000 });
+});
+
+test('設定ウィンドウを閉じるとアプリが終わる', async () => {
+  // 終了ボタンの代わり。閉じたまま生き残ると、Dock も隠れているので
+  // 戻る道が1つも無くなる。終わらせるので、この項目はいちばん最後に置く。
+  const exited = new Promise((resolve) => app.process().once('exit', resolve));
+  await app.evaluate(({ BrowserWindow }) => {
+    BrowserWindow.getAllWindows().find((w) => !w.isAlwaysOnTop())?.close();
+  }).catch(() => { /* 終了と評価が競走するので、切れても構わない */ });
+  await exited;
+  app = null;
 });

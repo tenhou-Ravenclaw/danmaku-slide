@@ -40,7 +40,7 @@
      欄の中に `b52bj39v a` と出ると、自分の貼り間違いにしか見えない。 */
   .got { display:none; }
   body[data-got="1"] .paste { display:none; }
-  body[data-got="1"]:not([data-running="1"]) .got { display:block; }
+  body[data-got="1"]:not([data-view="live"]) .got { display:block; }
   .got .say { margin:0 0 .5rem; color:var(--good); font-weight:700; }
   /* 貼り直しは滅多に使わない。押せることは示すが、ボタンの形は与えない。
      「スライドに流す」と並ぶと、どちらを押すのか迷う。 */
@@ -59,12 +59,16 @@
   .keys a { color:var(--accent); }
   kbd { background:var(--surface2); border:1px solid var(--line2); border-bottom-width:2px;
         border-radius:.3rem; padding:.05rem .35rem; font:inherit; font-size:.9em; }
-  hr { border:0; border-top:1px solid var(--line); margin:.2rem 0; }
 
-  .running { display:none; }
-  body[data-running="1"] .idle { display:none; }
-  body[data-running="1"] .running { display:block; }
-  body[data-running="1"] .live { display:flex; }
+  /* 流し始めたあとの画面。オンオフと「設定を変更する」だけを出す。
+     設定（リンク・流す画面）は捨てずに持っているので、オフにしてもすぐ流し直せる。 */
+  .liveview { display:none; }
+  body[data-view="live"] .idle { display:none; }
+  body[data-view="live"] .liveview { display:block; }
+  body[data-view="live"] .live { display:flex; }
+  /* とめているあいだは灯りを消す。流れていないことがひと目で分かるように。 */
+  body[data-view="live"]:not([data-running="1"]) .live { color:var(--muted); }
+  body[data-view="live"]:not([data-running="1"]) .live .dot { background:var(--muted); box-shadow:none; }
 </style>
 
 <body>
@@ -73,7 +77,7 @@
     <p class="say idle paste">運営から届いたリンクを貼ると、スライドの上に弾幕を流します。</p>
   </div>
 
-  <div class="live running"><span class="dot"></span><span id="liveText">流しています</span></div>
+  <div class="live liveview"><span class="dot"></span><span id="liveText">流しています</span></div>
 
   <div class="idle paste">
     <label for="track">運営からのリンク</label>
@@ -99,15 +103,13 @@
   <p id="msg" data-kind=""></p>
 
   <button id="go" class="idle">スライドに流す</button>
-  <button id="halt" class="running ghost">流すのをやめる</button>
-
-  <hr>
-
-  <button id="quit" class="ghost">終了する</button>
+  <button id="toggle" class="liveview ghost">流すのをやめる</button>
+  <button id="config" class="liveview ghost">設定を変更する</button>
 
   <p class="keys">
     スライドを全画面にすると、この窓は後ろに隠れる。<br>
-    <kbd id="k2">⌘⇧X</kbd> で、窓に手が届かなくても終われる。
+    <kbd id="k2">⌘⇧X</kbd> で、窓に手が届かなくても終われる。<br>
+    この窓を閉じると、アプリごと終わる。
   </p>
 
   <p class="keys idle">
@@ -151,16 +153,28 @@
     $('go').focus();
   });
 
-  async function go() {
+  // 流し始める。設定（リンク・流す画面）はそのまま持っているので、
+  // オンオフの切り替えでも同じ経路を通る。
+  async function start() {
     // 手で貼る経路は変えない。受け取ったぶんも parseTrackId が受け付ける形で渡す。
     const track = received ? `${received.eventId} ${received.trackId}` : $('track').value;
-    $('go').disabled = true;
     const r = await window.shell.start({ track, displayId: $('display').value });
-    $('go').disabled = false;
-    if (!r.ok) { msg(r.reason, 'bad'); focusFirst(); return; }
+    if (!r.ok) { msg(r.reason, 'bad'); return false; }
     msg('');
     $('liveText').textContent = `${r.trackId} を流しています`;
     document.body.dataset.running = '1';
+    $('toggle').textContent = '流すのをやめる';
+    $('toggle').classList.add('ghost');
+    return true;
+  }
+
+  async function go() {
+    $('go').disabled = true;
+    const ok = await start();
+    $('go').disabled = false;
+    if (!ok) { focusFirst(); return; }
+    document.body.dataset.view = 'live';
+    $('toggle').focus();
   }
 
   // 運営の画面はここで作る。弾幕ページそのものではないので、外のブラウザで開く。
@@ -169,8 +183,6 @@
     const origin = await window.shell.origin();
     window.shell.openExternal(`${origin}/organizer.html`);
   });
-
-  $('quit').addEventListener('click', () => window.shell.quit());
 
   // 受け取ったものを捨てて、手で貼る欄に戻る。
   // 届いたリンクが違うトラックだったとき、ここが無いと閉じて開き直すしかない。
@@ -184,9 +196,28 @@
 
   $('go').addEventListener('click', go);
   $('track').addEventListener('keydown', (e) => { if (e.key === 'Enter') go(); });
-  $('halt').addEventListener('click', async () => {
-    await window.shell.stop();
+
+  // その場でオンオフだけを切り替える。設定には戻らない。
+  // 登壇中に一瞬だけ消したいとき、設定画面を経由させない。
+  $('toggle').addEventListener('click', async () => {
+    if (document.body.dataset.running === '1') {
+      await window.shell.stop();
+      document.body.dataset.running = '';
+      $('liveText').textContent = 'とめています';
+      $('toggle').textContent = 'スライドに流す';
+      $('toggle').classList.remove('ghost');
+      return;
+    }
+    $('toggle').disabled = true;
+    await start();   // 流せなければ理由が #msg に出る
+    $('toggle').disabled = false;
+  });
+
+  // 止めて、リンクと流す画面の設定に戻る。
+  $('config').addEventListener('click', async () => {
+    if (document.body.dataset.running === '1') await window.shell.stop();
     document.body.dataset.running = '';
+    document.body.dataset.view = '';
     msg('');
     focusFirst();
   });
