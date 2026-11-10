@@ -6,7 +6,7 @@ import { chromium } from 'playwright';
 import * as sdk from 'firebase/firestore';
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInAnonymously, connectAuthEmulator } from 'firebase/auth';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { createBus, createEventBus } from '../public/lib/bus.mjs';
 
 const HOST = process.env.HOSTING_URL ?? 'http://127.0.0.1:5055';
@@ -1600,6 +1600,29 @@ await t('運営画面は他人のページに埋め込めない', async () => {
   assert(await page.$('#signIn'), '目印そのものが無い（検査が空振りしている）');
 
   await context.close();
+});
+
+// 配るときのキャッシュの指示（#110）。ブラウザは要らないが、Hosting の設定を
+// 実際に配らせて見られるのはこの一式だけなのでここに置く。
+//
+// トップは書き換えで organizer.html を出すが、パスとしては / のまま。glob を
+// 狭く書くと、ここだけ no-cache が外れて古い運営画面が出続ける。
+// vendor の1年キャッシュは後ろの block で勝っている。順番が崩れると、1年
+// キャッシュのはずのものが no-cache になって毎回落としてくる。
+await t('配信のキャッシュ指示が入口ごとに正しい', async () => {
+  const cc = async (p) => (await fetch(`${HOST}${p}`)).headers.get('cache-control');
+
+  for (const p of ['/', '/e/abc', '/post.html', '/vendor/entry.js']) {
+    const got = await cc(p);
+    assert(got?.includes('no-cache'), `${p} に no-cache が無い: ${got}`);
+  }
+
+  // 名前にハッシュが入っているものだけ1年。entry.js はそれを指すだけなので上で見ている。
+  const lib = readdirSync(new URL('../public/vendor/', import.meta.url))
+    .find((f) => /^lib\..+\.js$/.test(f));
+  assert(lib, 'vendor に lib.<hash>.js が無い（build が走っていない）');
+  const vendor = await cc(`/vendor/${lib}`);
+  assert(vendor?.includes('immutable'), `vendor の1年キャッシュが外れている: ${vendor}`);
 });
 
 await browser.close();
