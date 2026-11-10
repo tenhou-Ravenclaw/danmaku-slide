@@ -17,8 +17,10 @@ npm run pack:app -- --all  # mac と Windows の両方を作る（mac から Win
 
 `--all` で `dist/` に4つの zip が出る（darwin arm64/x64、win32 arm64/x64）。
 **Windows 機での確認には、mac で作った `win32-x64` を持っていけばいい。**
-署名していないので、Windows は SmartScreen の「詳細情報」→「実行」、
-macOS は初回だけ右クリック→開く が要る。
+署名していないので、Windows は SmartScreen の「詳細情報」→「実行」が要る。
+macOS は、ブラウザでダウンロードすると quarantine が付いて
+「壊れているため開けません」になる（Sequoia 以降、右クリック→開く では越えられない）。
+`xattr -cr 弾幕スライド.app` で外す。手元でビルドしたものはそのまま開ける。
 
 1. 運営の画面（`/organizer.html`）で Google サインインし、イベントとトラックを作る
 2. 開催日を今日にすると、一覧の先頭の「今日」にそのイベントが出る（作った直後は受付中）

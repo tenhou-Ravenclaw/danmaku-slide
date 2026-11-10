@@ -1,7 +1,8 @@
 // 透過シェルをダブルクリックで起動できるアプリに固める。
 //
 // 署名はしない。公証には Apple Developer Program が要り、時間的に無理。
-// 初回だけ右クリック→開く（macOS）／詳細情報→実行（Windows）で回避してもらう前提。
+// 初回だけ回避してもらう前提。macOS は「壊れているため開けません」が出るので
+// xattr -cr（Sequoia 以降、右クリック→開く は効かない）、Windows は 詳細情報→実行。
 //
 // mac から Windows 版も作れる。Electron が各OSの本体を配っているので、
 // 中身を入れ替えるだけで済む。native module を持っていないから成立する。
@@ -57,4 +58,4 @@ for (const dir of paths) {
   console.log(`✓ dist/${zip}`);
 }
 console.log(`  版 ${app.version}  ${stamp}  electron ${electronVersion}`);
-console.log('  署名していないので、macOS では初回だけ右クリック→開く が要る');
+console.log('  署名していないので、ダウンロードした macOS では xattr -cr 弾幕スライド.app が要る');
