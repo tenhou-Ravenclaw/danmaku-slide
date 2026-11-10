@@ -161,9 +161,12 @@
     </div>
 
     <!-- アプリは別の窓で開くので、開いたか確かめられない。確認は訊かず、
-         窓が出てこなかったときの逃げ道だけ出す。 -->
+         窓が出てこなかったときの逃げ道だけ出す。渡し終えた人にはもう選ぶものが
+         無いので、選択肢のカードは引っ込め、逃げ道はこの一文の中のリンクが持つ。 -->
     <div class="ask hidden" id="flowAsk">
-      <span class="hint">窓が出てこないときは、上の「アプリを入手」か「ブラウザで流す」へ。</span>
+      <span class="hint">窓が出てこないときは、<a id="askGetApp" href="./app.html"
+        target="_blank" rel="noopener">アプリを入手</a>するか、<a id="askBrowserWay"
+        href="#">ブラウザで流す</a>へ。</span>
     </div>
   </section>
 

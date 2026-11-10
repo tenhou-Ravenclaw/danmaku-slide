@@ -81,7 +81,9 @@ export async function createStage({ eventId, trackId, now = () => Date.now() } =
       title: 'アプリに渡しました',
       sub: 'アプリの窓が出ていれば、そのまま流れています',
       mark: circle(),
-      acts: true, ask: true, openApp: false, done: false,
+      // 渡し終えた人にはもう選ぶものが無いので、選択肢のカードは引っ込める。
+      // 窓が出なかった人の逃げ道は flowAsk の一文が、選び直す道は「流し方を変える」が持つ。
+      acts: false, ask: true, openApp: false, done: true,
     },
     live: {
       title: 'スライドに流しています',
@@ -135,6 +137,12 @@ export async function createStage({ eventId, trackId, now = () => Date.now() } =
   // 同じタブで遷移するとこの画面が消え、合図も返らなくなる。
   // 別の窓で開いて opener を残す。
   el('browserWay').addEventListener('click', (e) => {
+    e.preventDefault();
+    window.open(el('browserWay').href, 'danmaku-overlay');
+  });
+
+  // handoff の逃げ道の文中リンク。カードの「ブラウザで流す」と同じ窓を開く。
+  el('askBrowserWay').addEventListener('click', (e) => {
     e.preventDefault();
     window.open(el('browserWay').href, 'danmaku-overlay');
   });

@@ -707,8 +707,15 @@ await t('アプリに渡したら、渡したことだけを言う', async () =>
   const title = await page.textContent('#flowTitle');
   assert(/渡しました/.test(title), title);
   assert(!/流しています/.test(title), `確かめられないのに流していると言っている: ${title}`);
-  // 開かなかった人のために、入手と別の道を残す
-  assert(await page.isVisible('#getApp') && await page.isVisible('#browserWay'), '逃げ道が無い');
+  // 渡し終えた人にはもう選ぶものが無いので、選択肢のカードは引っ込める
+  assert(!await page.isVisible('#openApp') && !await page.isVisible('#browserWay'),
+    '選択肢が出たまま');
+  // 開かなかった人のために、入手と別の道は文中のリンクで残す。選び直す道も残す
+  assert(await page.isVisible('#askGetApp') && await page.isVisible('#askBrowserWay'), '逃げ道が無い');
+  assert(await page.isVisible('#changeWay'), '選び直す道が無い');
+  await page.click('#changeWay');
+  await page.waitForFunction(() => document.getElementById('openApp')?.offsetParent !== null,
+    { timeout: 20000 });
   await page.close(); await org.page.close();
 });
 
