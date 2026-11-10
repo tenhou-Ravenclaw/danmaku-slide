@@ -21,3 +21,4 @@ danmaku-slide-extension.zip
 .ext-diag/
 dist/
 .claude/worktrees/
+.claude/settings.json
