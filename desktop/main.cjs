@@ -63,6 +63,9 @@ function trackFromArgv(argv) {
 function deliverTrack(target) {
   if (!target) return;
   pendingTrack = target;
+  // macOS のリンク起動では open-url が app の準備より先に来る。
+  // まだウィンドウを作れないので積むだけにして、ready 後の createSetupWindow が拾う。
+  if (!app.isReady()) return;
   if (!setupWin || setupWin.isDestroyed()) createSetupWindow();
   setupWin.show();
   setupWin.focus();
@@ -251,7 +254,8 @@ app.whenReady().then(() => {
 
   registerShortcuts();
   setInterval(keepOnTop, 1500);
-  pendingTrack = trackFromArgv(process.argv);
+  // open-url が先に積んだぶんを消さない（macOS の argv にはリンクが入らない）
+  pendingTrack = trackFromArgv(process.argv) ?? pendingTrack;
   createSetupWindow();
 
   app.on('activate', () => {
