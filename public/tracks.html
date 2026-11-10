@@ -37,18 +37,5 @@
   <footer>部屋の入口にQRがあれば、そちらを読み取ると直接開けます。</footer>
 </main>
 
-<script type="module">
-  const note = document.getElementById('note');
-  const show = (m) => { note.textContent = `エラー: ${m}`; note.dataset.kind = 'bad'; };
-  addEventListener('error', (e) => show(e.message ?? e.error));
-  addEventListener('unhandledrejection', (e) => show(e.reason?.message ?? e.reason));
-  try {
-    const q = new URLSearchParams(location.search);
-    // /e/<id> から rewrite で来る。直接 ?e= でも開ける。
-    const fromPath = location.pathname.match(/^\/e\/([^/]+)\/?$/)?.[1];
-    // /e/<id> から開かれるので、相対パスだと /e/lib/... を探しに行く
-    const { createPicker } = await import('/lib/picker.mjs');
-    window.__picker = await createPicker({ eventId: q.get('e') ?? fromPath });
-  } catch (e) { show(e?.message ?? e); }
-</script>
+<script type="module" src="/tracks.boot.mjs"></script>
 </html>

@@ -15,7 +15,8 @@
         "source": "**",
         "headers": [
           { "key": "X-Frame-Options", "value": "DENY" },
-          { "key": "Content-Security-Policy", "value": "frame-ancestors 'none'" },
+          { "key": "Content-Security-Policy", "value": "frame-ancestors 'none'; object-src 'none'; base-uri 'none'" },
+          { "key": "Content-Security-Policy-Report-Only", "value": "script-src 'self' 'unsafe-eval'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'" },
           { "key": "X-Content-Type-Options", "value": "nosniff" }
         ]
       },
