@@ -52,8 +52,9 @@ Aizuchi は**描画の実装を1本に保ったまま、スライドへの「貼
                      弾幕ページ / 投稿ページを配信
 ```
 
-**サーバコードを持たない。** Firebase Hosting と Firestore だけで動き、整合性と安全性は
-すべて **Firestore Security Rules** に寄せている（→ [SECURITY.md](SECURITY.md)）。
+**サーバアプリケーションコードを持たない。** Cloud Functions も自前のバックエンドも無く、
+Firebase Hosting と Firestore だけで動く。整合性と安全性のロジックは、サーバ側で評価される
+**Firestore Security Rules** に寄せている（→ [SECURITY.md](SECURITY.md)）。
 
 ## データモデル
 
