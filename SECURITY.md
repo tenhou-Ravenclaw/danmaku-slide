@@ -45,8 +45,24 @@ events/{eventId}          { name, heldOn, ownerUid, createdAt }
 | T3 | 投稿の改変・削除 | `update` / `delete` は owner でも全拒否 |
 | T4 | 無限書き込みで Firestore 課金を燃やす | `getAfter()` で同一バッチの `posters` 更新を強制し、`posters` 側で2秒のクールダウン。`request.query.limit` も上限で縛る |
 | T5 | 長文・制御文字で描画を壊す | フィールド whitelist、1〜60文字、`createdAt == request.time` |
+| T6 | 運営画面を他人のページに重ねて誤操作させる | `frame-ancestors 'none'`（古いブラウザ向けに `X-Frame-Options: DENY` も併記）|
 
 描画は Canvas の `fillText` なので、XSS は構造的に発生しない。DOM 化しないことが防御になっている。
+
+ただし構造上の防御1枚に頼らず、CSP でもう一枚被せている（`firebase.json` の応答ヘッダ）。
+将来どこか一か所で `innerHTML` に外から来た文字を入れても、注入された `onerror=` 等のインライン
+実行と外部スクリプトの読み込みを `script-src` が止める。そのためにインライン `<script>` は
+各ページとも外部モジュール（`public/*.boot.mjs`）へ出し、`'unsafe-inline'` を持たせずに済ませている。
+
+    script-src 'self' 'unsafe-eval' https://apis.google.com; object-src 'none'; base-uri 'none'; frame-ancestors 'none'
+
+`apis.google.com` は Google サインインの gapi が要る。`'unsafe-eval'` は配信バンドル（protobuf）が
+`eval` を使うため。`connect-src` / `img-src` / `style-src` は縛っていない（`default-src` も置かない）。
+Firestore の接続・QR の `data:`/`blob:`・弾幕ページのインラインスタイルをそのまま通すため、
+縛るとどれかが黙って壊れる。enforcing にする前に、本番相当のプレビューで**サインインが CSP 違反
+ゼロで通ること**を実ブラウザ（ヘッドレス Chromium）で確かめてから上げた。
+
+`X-Content-Type-Options: nosniff` も同じ場所で足している。応答の型を推測で上書きさせない。
 
 ## レート制限の仕組み
 
