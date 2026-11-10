@@ -60,7 +60,9 @@ export async function createStage({ eventId, trackId, now = () => Date.now() } =
   const seen = new Set();
 
   el('openApp').href = appUrlFor(eventId, trackId);
-  el('browserWay').href = withEnv(`${overlayUrlFor(eventId, trackId)}&capture=1`);
+  // test=1 で、開いた直後に確認用の弾が数本流れる（アプリ版と同じ）。
+  // 投稿が来る前でも、弾幕が描けているか・位置が合っているかを確かめられる。
+  el('browserWay').href = withEnv(`${overlayUrlFor(eventId, trackId)}&capture=1&test=1`);
   // 「アプリを入手」は GitHub Release へ飛ばす（/app.html は Release へのリダイレクト）。
   // 入れる余裕が無い人の逃げ道は、上の browserWay（ブラウザで流す）がそのまま持つ。
 
@@ -158,7 +160,7 @@ export async function createStage({ eventId, trackId, now = () => Date.now() } =
 
     // 止めたのは運営。登壇者には何が起きているかと、誰に言えばいいかを伝える。
     if (track.stopped) {
-      say('停止中', { reason: '運営が止めています。再開は運営へ', kind: 'stopped' });
+      say('コメントを停止中', { reason: '運営が止めています。再開は運営へ', kind: 'stopped' });
     } else {
       say('受付中', {
         sub: lastAt ? `最後のコメント ${ago(lastAt, now())}` : 'まだ届いていません',

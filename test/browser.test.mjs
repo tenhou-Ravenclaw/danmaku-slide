@@ -661,6 +661,9 @@ await t('登壇者ページは「まだ流していない」から始まる', as
   assert(await page.getAttribute('#flowbox', 'data-state') === 'idle', 'はじめから流れている扱いになっている');
   assert(/まだ流していません/.test(await page.textContent('#flowTitle')), await page.textContent('#flowTitle'));
   assert(await page.isVisible('#openApp') && await page.isVisible('#browserWay'), '流し方を選べない');
+  // ブラウザで流す経路でも、開いた直後に確認用の弾が出る（test=1）
+  assert(/[?&]test=1\b/.test(await page.getAttribute('#browserWay', 'href')),
+    `ブラウザで流す URL に test=1 が無い: ${await page.getAttribute('#browserWay', 'href')}`);
   assert(/Track A/.test(await page.textContent('#trackName')), await page.textContent('#trackName'));
   assert(/手順の会/.test(await page.textContent('#eventName')), await page.textContent('#eventName'));
   assert(errors.length === 0, `エラー: ${errors.join(' / ')}`);

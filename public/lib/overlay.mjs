@@ -56,7 +56,7 @@ export function createOverlay({ canvas, hud, video = null, eventId, trackId, tes
     if (t) {
       bits.push(t.name);
       if (t.title) bits.push(t.title);
-      if (t.stopped) bits.push('停止中');
+      if (t.stopped) bits.push('コメントを停止中');
     }
     if (state.dropped > 0) bits.push(`流しきれず ${state.dropped}`);
     // textContent なので、トラック名や演題を DOM に入れても解釈されない
