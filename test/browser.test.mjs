@@ -1101,6 +1101,18 @@ await t('全画面のあいだは操作バーを出さない', async () => {
   await page.close(); await org.page.close();
 });
 
+await t('ブラウザ版の操作バーに「流すのをやめる」がある', async () => {
+  // ブラウザ版は窓を閉じるしか止める手が無かった（佐藤さんの指摘）。バーに口を置く。
+  // 押すと窓が閉じて後が回らないので、出ていることまで見る。
+  const org = await makeEventInBrowser('やめるの会', ['Track A']);
+  const { page } = await open(`${HOST}/overlay.html?emu=1&e=${org.eventId}&t=a`);
+  await page.waitForSelector('#bar', { state: 'attached' });
+  await page.evaluate(() => { document.body.dataset.bar = 'show'; });
+  assert(await page.isVisible('#close'), '「流すのをやめる」ボタンが無い');
+  assert(/やめる/.test(await page.textContent('#close')), await page.textContent('#close'));
+  await page.close(); await org.page.close();
+});
+
 await t('透過シェルから開いたときは操作バーを出さない', async () => {
   const org = await makeEventInBrowser('透過の会', ['Track A']);
   const { page } = await open(`${HOST}/overlay.html?emu=1&transparent=1&e=${org.eventId}&t=a`);

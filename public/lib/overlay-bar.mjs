@@ -85,6 +85,19 @@ export function mountBar(overlay, { autoPick = false } = {}) {
     if (!overlay.screens.isFullscreen()) showBar();
   });
 
+  // --- 流すのをやめる ---------------------------------------------------
+  // この窓が弾幕そのものなので、やめる＝窓を閉じる。「ブラウザで流す」は
+  // window.open で開くので自分で閉じられる。直接開かれて閉じられないときは、
+  // 取り込みと弾幕を止めて、閉じ方を案内する（黙って効かないボタンにしない）。
+  el('close').addEventListener('click', () => {
+    window.close();
+    setTimeout(() => {
+      if (window.closed) return;
+      overlay.dropSlide();
+      msg('このタブ（ウィンドウ）を閉じると止まります', '');
+    }, 200);
+  });
+
   // コンソールから「スライドに流す」で来たときは、選択画面まで一気に出す
   if (autoPick) el('pick').click();
 
